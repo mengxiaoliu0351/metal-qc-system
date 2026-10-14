@@ -1,0 +1,46 @@
+[
+  {
+    "key": "metal_nut",
+    "name": "金属螺母 (MVTec metal_nut)",
+    "bank": "金属螺母(metal_nut).npy",
+    "threshold": 0.2345,
+    "calibration": {
+      "threshold": 0.2345,
+      "median": 0.0,
+      "mad": 0.0,
+      "n_normal": 80,
+      "score_min": 0.0,
+      "score_max": 0.0
+    }
+  },
+  {
+    "key": "screw",
+    "name": "金属螺丝 (MVTec screw)",
+    "bank": "金属螺丝(screw).npy",
+    "threshold": 0.1788,
+    "calibration": {
+      "threshold": 0.1788,
+      "median": 0.1529,
+      "mad": 0.0172,
+      "n_normal": 240,
+      "score_min": 0.1127,
+      "score_max": 0.3798,
+      "method": "independent-holdout"
+    }
+  },
+  {
+    "key": "grid",
+    "name": "金属网格 (MVTec grid)",
+    "bank": "金属网格(grid).npy",
+    "threshold": 0.2311,
+    "calibration": {
+      "threshold": 0.2311,
+      "median": 0.2062,
+      "mad": 0.0166,
+      "n_normal": 184,
+      "score_min": 0.1465,
+      "score_max": 0.2884,
+      "method": "independent-holdout"
+    }
+  }
+]

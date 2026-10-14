@@ -1,0 +1,26 @@
+﻿# 感知层
+torch>=2.0
+torchvision
+open_clip_torch
+pillow
+numpy
+
+# 认知层 / VLM 调用
+openai>=1.0
+transformers
+accelerate
+
+# Web 后端（当前主应用）
+fastapi
+uvicorn[standard]
+python-multipart
+requests
+
+# 工具
+opencv-python
+matplotlib
+pandas
+scikit-learn
+
+# 旧版 Streamlit 界面（已弃用，仅供参考，可不装）
+# streamlit

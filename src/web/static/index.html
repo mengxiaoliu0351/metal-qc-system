@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能质检系统</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { background: #0a0e1a; font-family: 'Segoe UI', system-ui, sans-serif; }
+  .glass { background: rgba(17,26,46,0.92); border: 1px solid rgba(6,182,212,0.18); box-shadow: 0 4px 24px rgba(0,0,0,0.35); }
+  .batch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px; }
+  .batch-card { background: rgba(17,26,46,0.92); border-radius: 14px; overflow: hidden; border: 1px solid rgba(6,182,212,0.18); box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+  .batch-card.good { border-color: rgba(34,197,94,0.5); }
+  .batch-card.bad { border-color: rgba(239,68,68,0.6); }
+  .batch-imgwrap { background: #05080f; aspect-ratio: 4/3; display: flex; align-items: center; justify-content: center; }
+  .batch-imgwrap img { width: 100%; height: 100%; object-fit: contain; }
+  .batch-body { padding: 12px 14px; }
+  .batch-name { font-size: 12px; color: #8899bb; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .batch-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .batch-score { font-size: 22px; font-weight: 700; color: #00c8ff; }
+  .batch-tag { font-size: 13px; font-weight: 700; padding: 3px 10px; border-radius: 999px; }
+  .t-good { background: rgba(34,197,94,0.15); color: #22c55e; }
+  .t-bad { background: rgba(239,68,68,0.15); color: #ef4444; }
+  .batch-meta { font-size: 12px; color: #9fb0cc; line-height: 1.4; }
+  .metric-value { font-size: 32px; font-weight: 700; color: #fff; }
+  .metric-label { font-size: 12px; color: #8899bb; }
+  .accent { color: #00c8ff; }
+  .btn-primary { background: linear-gradient(90deg, #00c8ff, #0099cc); color: #fff; padding: 10px 24px; border-radius: 10px; font-weight: 600; transition: all 0.3s; border: none; cursor: pointer; font-size: 14px; }
+  .btn-primary:hover { box-shadow: 0 6px 20px rgba(0,200,255,0.4); }
+  .btn-secondary { background: rgba(255,255,255,0.05); color: #ccd; padding: 8px 20px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); cursor: pointer; font-size: 13px; }
+  .btn-danger { background: rgba(229,57,53,0.2); color: #ef5350; padding: 8px 20px; border-radius: 10px; border: 1px solid rgba(229,57,53,0.3); cursor: pointer; font-size: 13px; }
+  .drop-zone { border: 2px dashed rgba(0,200,255,0.3); border-radius: 16px; padding: 30px; text-align: center; transition: all 0.3s; cursor: pointer; }
+  .drop-zone:hover { border-color: #00c8ff; background: rgba(0,200,255,0.05); }
+  .verdict-pass { background: rgba(67,160,71,0.1); border-left: 4px solid #43a047; padding: 14px 18px; border-radius: 10px; }
+  .verdict-fail { background: rgba(229,57,53,0.1); border-left: 4px solid #e53935; padding: 14px 18px; border-radius: 10px; }
+  .bar { height: 8px; border-radius: 4px; background: rgba(255,255,255,0.1); overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 4px; transition: width 0.5s; }
+  .loading { display: inline-block; width: 20px; height: 20px; border: 2px solid rgba(0,200,255,0.3); border-top-color: #00c8ff; border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .nav-item { padding: 12px 20px; cursor: pointer; border-radius: 10px; transition: all 0.2s; color: #8899bb; font-size: 14px; }
+  .nav-item:hover { background: rgba(255,255,255,0.05); color: #fff; }
+  .nav-item.active { background: rgba(0,200,255,0.1); color: #00c8ff; border-left: 3px solid #00c8ff; }
+  .page { display: none; }
+  .page.active { display: block; }
+  .chat-msg { padding: 12px 16px; border-radius: 12px; margin-bottom: 8px; max-width: 80%; }
+  .chat-user { background: rgba(0,200,255,0.15); margin-left: auto; }
+  .chat-ai { background: rgba(255,255,255,0.05); margin-right: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; padding: 12px; color: #8899bb; font-size: 12px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+  td { padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 13px; }
+</style>
+</head>
+<body class="text-gray-200">
+
+<div class="flex h-screen">
+  <!-- Sidebar -->
+  <aside class="w-56 glass border-r border-cyan-500/20 p-4">
+    <h1 class="text-lg font-bold text-white mb-1">🔩 智能质检系统</h1>
+    <p class="text-xs text-gray-600 mb-6">山东大学人工智能学院</p>
+    <div class="nav-item active" onclick="showPage('dashboard', this)">📊 仪表盘</div>
+    <div class="nav-item" onclick="showPage('detect', this)">🔍 单图检测</div>
+    <div class="nav-item" onclick="showPage('batch', this)">📦 批量检测</div>
+    <div class="nav-item" onclick="showPage('history', this)">📜 历史记录</div>
+    <div class="nav-item" onclick="showPage('assistant', this)">🤖 AI助手</div>
+  </aside>
+
+  <!-- Main -->
+  <main class="flex-1 overflow-y-auto p-8">
+
+    <!-- Dashboard -->
+    <div id="page-dashboard" class="page active">
+      <h2 class="text-2xl font-bold text-white mb-6">📊 仪表盘</h2>
+      <div class="grid grid-cols-4 gap-4 mb-8">
+        <div class="glass rounded-xl p-5 border-l-2 border-cyan-500">
+          <div class="metric-label">今日检测</div>
+          <div class="metric-value" id="stat-today">0</div>
+        </div>
+        <div class="glass rounded-xl p-5 border-l-2 border-green-500">
+          <div class="metric-label">合格</div>
+          <div class="metric-value text-green-400" id="stat-pass">0</div>
+        </div>
+        <div class="glass rounded-xl p-5 border-l-2 border-red-500">
+          <div class="metric-label">不合格</div>
+          <div class="metric-value text-red-400" id="stat-fail">0</div>
+        </div>
+        <div class="glass rounded-xl p-5 border-l-2 border-yellow-500">
+          <div class="metric-label">判定阈值</div>
+          <div class="metric-value text-yellow-400" id="stat-threshold">0.2345</div>
+        </div>
+      </div>
+      <div class="glass rounded-xl p-6">
+        <h3 class="text-lg font-semibold text-white mb-4">系统说明</h3>
+        <p class="text-gray-400 text-sm leading-relaxed">
+          本系统为金属表面缺陷智能质检辅助工具。上传零件图片后，系统自动识别异常区域并生成热力图，
+          同时输出缺陷类型概率分析。高置信结果快速出结论，低置信结果由AI深度分析并对照行业标准。
+          所有结果为辅助判断，最终由人工确认签发。
+        </p>
+      </div>
+    </div>
+
+    <!-- Detect -->
+    <div id="page-detect" class="page">
+      <h2 class="text-2xl font-bold text-white mb-6">🔍 单图检测</h2>
+      <div class="grid grid-cols-2 gap-6">
+        <div class="glass rounded-2xl p-6">
+          <h3 class="text-lg font-semibold text-white mb-4">上传图片</h3>
+          <label class="block text-sm text-gray-400 mb-2">检测产品（换产请切换对应产品，系统使用该产品的正常样本库与判定阈值）</label>
+          <select id="product-select" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-white mb-4 focus:border-cyan-400 outline-none">
+            <option value="metal_nut">加载中...</option>
+          </select>
+          <div class="drop-zone" id="drop-zone">
+            <div class="text-4xl mb-3">📷</div>
+            <p class="text-gray-400">点击或拖拽图片到此处</p>
+            <input type="file" id="file-input" accept="image/*" class="hidden">
+          </div>
+          <div id="preview" class="mt-4 hidden">
+            <img id="preview-img" class="w-full rounded-lg">
+          </div>
+          <button class="btn-primary w-full mt-4" onclick="detect()">▶️ 开始检测</button>
+          <div id="loading" class="hidden mt-4 text-center">
+            <div class="loading inline-block"></div>
+            <span class="ml-2 text-gray-400">检测中...</span>
+          </div>
+        </div>
+        <div class="glass rounded-2xl p-6">
+          <h3 class="text-lg font-semibold text-white mb-4">检测结果</h3>
+          <div id="no-result" class="text-center text-gray-600 py-16">
+            <div class="text-5xl mb-4">🔍</div><p>等待检测</p>
+          </div>
+          <div id="result" class="hidden">
+            <div class="grid grid-cols-3 gap-3 mb-4">
+              <div class="text-center">
+                <div class="metric-label">异常分数</div>
+                <div class="text-2xl font-bold accent" id="r-score">—</div>
+              </div>
+              <div class="text-center">
+                <div class="metric-label">检测模式</div>
+                <div class="text-2xl font-bold" id="r-route">—</div>
+              </div>
+              <div class="text-center">
+                <div class="metric-label">结论</div>
+                <div class="text-2xl font-bold" id="r-verdict">—</div>
+              </div>
+            </div>
+            <div class="mb-4" id="r-scorebar-wrap">
+              <div class="metric-label mb-2">异常分数分布</div>
+              <div class="bar"><div class="bar-fill" id="r-bar" style="width:0%; background: linear-gradient(90deg, #43a047, #ff9800, #e53935);"></div></div>
+            </div>
+            <img id="r-heatmap" class="w-full rounded-lg mb-4">
+            <div id="r-classification" class="mb-4"></div>
+            <div id="r-cognition" class="verdict-pass">
+              <div class="font-semibold mb-1" id="r-conclusion">—</div>
+              <p class="text-sm" id="r-desc">—</p>
+              <p class="text-xs text-gray-500 mt-2" id="r-suggestion">—</p>
+            </div>
+            <button class="btn-secondary w-full mt-3" id="btn-pdf" onclick="exportPDF()" style="display:none;">📄 导出PDF报告</button>
+            <div id="feedback-row" class="flex gap-2 mt-2" style="display:none;">
+              <button class="btn-secondary flex-1" onclick="sendFeedback('up')">👍 结果正确</button>
+              <button class="btn-danger flex-1" onclick="sendFeedback('down')">👎 结果有误</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Batch -->
+    <div id="page-batch" class="page">
+      <h2 class="text-2xl font-bold text-white mb-6">📦 批量检测</h2>
+      <div class="glass rounded-2xl p-6">
+        <label class="block text-sm text-gray-400 mb-2">检测产品</label>
+        <select id="batch-product-select" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-white mb-4 focus:border-cyan-400 outline-none">
+          <option value="metal_nut">加载中...</option>
+        </select>
+        <div class="drop-zone" id="batch-zone">
+          <div class="text-4xl mb-3">📷</div>
+          <p class="text-gray-400">点击或拖拽多张图片到此处</p>
+          <input type="file" id="batch-input" accept="image/*" multiple class="hidden">
+        </div>
+        <div id="batch-list" class="mt-4"></div>
+        <button class="btn-primary mt-4" onclick="detectBatch()">▶️ 批量检测</button>
+        <button class="btn-secondary mt-4 ml-2" onclick="exportCSV()">📥 导出CSV</button>
+      </div>
+      <div id="batch-results" class="mt-6"></div>
+    </div>
+
+    <!-- History -->
+    <div id="page-history" class="page">
+      <h2 class="text-2xl font-bold text-white mb-6">📜 历史记录</h2>
+      <div class="glass rounded-2xl p-6">
+        <table>
+          <thead><tr><th>时间</th><th>样品</th><th>分数</th><th>模式</th><th>结论</th></tr></thead>
+          <tbody id="history-table"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Assistant -->
+    <div id="page-assistant" class="page">
+      <h2 class="text-2xl font-bold text-white mb-6">🤖 AI助手</h2>
+      <div class="glass rounded-2xl p-6" style="height: calc(100vh - 200px); display: flex; flex-direction: column;">
+        <div id="chat-messages" class="flex-1 overflow-y-auto mb-4">
+          <div class="chat-msg chat-ai">你好！我是智能质检助手。可以问我：今天检测了多少？什么样算不合格？</div>
+        </div>
+        <div class="flex gap-2">
+          <input type="text" id="chat-input" class="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white" placeholder="输入你的问题...">
+          <button class="btn-primary" onclick="sendChat()">发送</button>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+let selectedFile = null;
+let batchFiles = [];
+let batchResults = [];
+let currentSession = null;
+
+// Load stats
+fetch('/api/stats').then(r => r.json()).then(d => {
+  document.getElementById('stat-today').textContent = d.today;
+  document.getElementById('stat-pass').textContent = d.pass;
+  document.getElementById('stat-fail').textContent = d.fail;
+  document.getElementById('stat-threshold').textContent = d.threshold;
+});
+
+function showPage(name, el) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  el.classList.add('active');
+  if (name === 'history') loadHistory();
+}
+
+async function loadProducts() {
+  try {
+    const r = await fetch('/api/products');
+    const d = await r.json();
+    let html = '';
+    d.products.forEach(p => {
+      html += `<option value="${p.key}">${p.name}（阈值 ${p.threshold}）</option>`;
+    });
+    html += `<option value="${d.fallback.key}">${d.fallback.name}</option>`;
+    document.getElementById('product-select').innerHTML = html;
+    document.getElementById('batch-product-select').innerHTML = html;
+  } catch (e) { console.error('加载产品列表失败', e); }
+}
+loadProducts();
+
+// Single detect
+const dz = document.getElementById('drop-zone');
+const fi = document.getElementById('file-input');
+dz.onclick = () => fi.click();
+dz.ondragover = e => { e.preventDefault(); dz.style.borderColor = '#00c8ff'; };
+dz.ondrop = e => { e.preventDefault(); dz.style.borderColor = ''; if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]); };
+fi.onchange = e => { if (e.target.files.length) handleFile(e.target.files[0]); };
+
+function handleFile(f) {
+  selectedFile = f;
+  const reader = new FileReader();
+  reader.onload = e => {
+    document.getElementById('preview').classList.remove('hidden');
+    document.getElementById('preview-img').src = e.target.result;
+  };
+  reader.readAsDataURL(f);
+}
+
+async function detect() {
+  if (!selectedFile) { alert('请先选择图片'); return; }
+  document.getElementById('loading').classList.remove('hidden');
+  document.getElementById('no-result').classList.add('hidden');
+  document.getElementById('result').classList.add('hidden');
+  const fd = new FormData();
+  fd.append('file', selectedFile);
+  fd.append('product', document.getElementById('product-select').value);
+  try {
+    const r = await fetch('/api/detect', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (d.ok) showResult(d);
+    else alert('检测失败: ' + d.error);
+  } catch (e) { alert('请求失败: ' + e.message); }
+  document.getElementById('loading').classList.add('hidden');
+}
+
+function showResult(d) {
+  currentSession = d.session_id;
+  document.getElementById('result').classList.remove('hidden');
+  document.getElementById('btn-pdf').style.display = 'block';
+  document.getElementById('feedback-row').style.display = 'flex';
+  const isGeneral = d.route === 'general';
+  document.getElementById('r-score').textContent = isGeneral ? '通用' : (d.score != null ? d.score.toFixed(4) : '—');
+  document.getElementById('r-route').textContent =
+    isGeneral ? '通用直检🤖' : (d.route === 'fast' ? '快速⚡' : '深度🔍');
+  const verdict = d.cognition?.conclusion || '—';
+  document.getElementById('r-verdict').textContent = verdict;
+  document.getElementById('r-verdict').className = 'text-2xl font-bold ' + (verdict.includes('合格') && !verdict.includes('不') ? 'text-green-400' : 'text-red-400');
+  document.getElementById('r-scorebar-wrap').style.display = isGeneral ? 'none' : 'block';
+  document.getElementById('r-heatmap').style.display = isGeneral ? 'none' : 'block';
+  if (!isGeneral && d.score != null && d.threshold) {
+    const pct = Math.min(d.score / d.threshold * 100, 100);
+    document.getElementById('r-bar').style.width = pct + '%';
+    document.getElementById('r-heatmap').src = 'data:image/png;base64,' + d.heatmap;
+  }
+  if (d.classification) {
+    let html = '<div class="metric-label mb-2">缺陷类型识别</div>';
+    Object.entries(d.classification).sort((a,b) => b[1]-a[1]).forEach(([k, v]) => {
+      html += `<div class="flex items-center gap-2 mb-1"><span class="text-sm w-12">${k}</span><div class="bar flex-1"><div class="bar-fill" style="width:${(v*100).toFixed(1)}%; background:#00c8ff;"></div></div><span class="text-xs w-12 text-right">${(v*100).toFixed(1)}%</span></div>`;
+    });
+    document.getElementById('r-classification').innerHTML = html;
+  } else if (isGeneral) {
+    document.getElementById('r-classification').innerHTML =
+      '<div class="metric-label mb-2">AI视觉直检</div><p class="text-xs text-gray-400">该产品尚未建立正常样本库，由视觉大模型直接判读，结果仅供参考，建议尽快采集正常样本建库。</p>';
+  }
+  const c = d.cognition || {};
+  document.getElementById('r-conclusion').textContent = c.conclusion || '—';
+  document.getElementById('r-desc').textContent = c.defect_desc || '—';
+  document.getElementById('r-suggestion').textContent = '建议: ' + (c.suggestion || '—');
+  const pass = verdict.includes('合格') && !verdict.includes('不');
+  document.getElementById('r-cognition').className = pass ? 'verdict-pass' : 'verdict-fail';
+}
+
+function exportPDF() {
+  if (!currentSession) { alert('请先完成检测'); return; }
+  window.open('/api/report/' + currentSession, '_blank');
+}
+
+async function sendFeedback(label) {
+  const comment = label === 'down' ? prompt('请描述问题（可选）：') || '' : '';
+  const r = await fetch('/api/feedback', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ session_id: currentSession, label, comment })
+  });
+  const d = await r.json();
+  if (d.ok) {
+    alert(label === 'up' ? '感谢确认，结果已存入案例库' : '已标记为困难样本，将辅助优化判定阈值');
+  }
+}
+
+// Batch
+const bz = document.getElementById('batch-zone');
+const bi = document.getElementById('batch-input');
+bz.onclick = () => bi.click();
+bi.onchange = e => {
+  batchFiles = Array.from(e.target.files);
+  let html = '';
+  batchFiles.forEach((f, i) => { html += `<div class="text-sm text-gray-400">${i+1}. ${f.name}</div>`; });
+  document.getElementById('batch-list').innerHTML = html;
+};
+
+async function detectBatch() {
+  if (!batchFiles.length) { alert('请先选择图片'); return; }
+  batchResults = [];
+  for (let i = 0; i < batchFiles.length; i++) {
+    const fd = new FormData();
+    fd.append('file', batchFiles[i]);
+    fd.append('product', document.getElementById('batch-product-select').value);
+    const previewUrl = URL.createObjectURL(batchFiles[i]);
+    try {
+      const r = await fetch('/api/detect', { method: 'POST', body: fd });
+      const d = await r.json();
+      batchResults.push({ name: batchFiles[i].name, previewUrl, ...d });
+    } catch (e) {
+      batchResults.push({ name: batchFiles[i].name, previewUrl, ok: false, error: e.message });
+    }
+  }
+  let html = '<div class="batch-grid">';
+  batchResults.forEach(r => {
+    const bad = r.cognition?.conclusion === '不合格';
+    const verdict = r.cognition?.conclusion || (r.ok === false ? '检测失败' : '—');
+    const img = r.heatmap ? `data:image/png;base64,${r.heatmap}` : r.previewUrl;
+    const cls = bad ? 'batch-card bad' : 'batch-card good';
+    const mode = r.route === 'fast' ? '快速⚡' : (r.route === 'general' ? 'AI直检' : '深度🔍');
+    html += `
+      <div class="${cls}">
+        <div class="batch-imgwrap"><img src="${img}" alt=""></div>
+        <div class="batch-body">
+          <div class="batch-name">${r.name}</div>
+          <div class="batch-row">
+            <span class="batch-score">${r.score != null ? r.score.toFixed(4) : '—'}</span>
+            <span class="batch-tag ${bad ? 't-bad' : 't-good'}">${verdict}</span>
+          </div>
+          <div class="batch-meta">${mode}${r.cognition?.defect_desc ? ' · ' + r.cognition.defect_desc : ''}</div>
+        </div>
+      </div>`;
+  });
+  html += '</div>';
+  document.getElementById('batch-results').innerHTML = html;
+}
+
+function exportCSV() {
+  if (!batchResults.length) { alert('没有结果可导出'); return; }
+  let csv = '图片,分数,模式,结论\n';
+  batchResults.forEach(r => { csv += `${r.name},${r.score?.toFixed(4)||''},${r.route||''},${r.cognition?.conclusion||''}\n`; });
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'batch_results.csv';
+  a.click();
+}
+
+// History
+async function loadHistory() {
+  const r = await fetch('/api/history?limit=50');
+  const d = await r.json();
+  let html = '';
+  d.records.forEach(rec => {
+    const c = rec.cognition || {};
+    html += `<tr><td>${(rec.timestamp||'').slice(0,16)}</td><td>${rec.sample_name||'—'}</td><td>${(rec.score||0).toFixed(4)}</td><td>${rec.gate?.route||'—'}</td><td>${c.conclusion||'—'}</td></tr>`;
+  });
+  document.getElementById('history-table').innerHTML = html;
+}
+
+// Chat
+async function sendChat() {
+  const input = document.getElementById('chat-input');
+  const q = input.value.trim();
+  if (!q) return;
+  input.value = '';
+  const messages = document.getElementById('chat-messages');
+  messages.innerHTML += `<div class="chat-msg chat-user">${q}</div>`;
+  const loadingDiv = document.createElement('div');
+  loadingDiv.className = 'chat-msg chat-ai';
+  loadingDiv.innerHTML = '<div class="loading inline-block"></div>';
+  messages.appendChild(loadingDiv);
+  try {
+    const r = await fetch('/api/chat', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ question: q }) });
+    const d = await r.json();
+    loadingDiv.innerHTML = d.answer || '抱歉，我没能理解。';
+  } catch (e) {
+    loadingDiv.innerHTML = '请求失败: ' + e.message;
+  }
+  messages.scrollTop = messages.scrollHeight;
+}
+</script>
+</body>
+</html>

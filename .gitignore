@@ -1,0 +1,73 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 虚拟环境
+venv/
+env/
+ENV/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 模型权重（太大，不入库）
+weights/*.safetensors
+weights/*.bin
+weights/*.pt
+weights/*.pth
+# 嵌套目录里的权重副本，同样不入库
+**/weights/*.safetensors
+src/perception/weights/
+
+# 数据集（太大，不入库）
+data/
+
+# 实验结果
+results/
+*.csv
+*.png
+*.jpg
+
+# 旧项目归档
+_legacy_旧论文项目/
+
+# 密钥 / 环境变量（绝不能提交）
+.env
+.env.*
+config_local.py
+secrets.py
+
+# 演示缓存与工作临时文件
+results/demo_cache/
+.lark-slides/
+.preview/
+app_assets/
+

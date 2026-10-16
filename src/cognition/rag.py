@@ -107,3 +107,35 @@ if __name__ == "__main__":
     v = kb.validate_ref_ids(["GB34528-P07-S4", "GB34528-P99-S99"],
                             [x["id"] for x in r])
     print(f"校验: all_valid={v['all_valid']}, 无效ID={v['invalid_ids']}")
+
+
+class SemanticKnowledgeBase:
+    """#3 CLIP 语义检索：条文与缺陷描述在同一多模态空间算余弦相似度。
+
+    encode_fn: callable(list[str]) -> np.ndarray[n, d]，返回已归一化的行向量。
+    通常传 open_clip 的文本编码器，这样图像/文本/条文共享同一语义空间。
+    """
+
+    def __init__(self, encode_fn, fragments=None):
+        self.fragments = fragments or STANDARD_FRAGMENTS
+        self.encode_fn = encode_fn
+        # 建库时把所有条文编码一次并归一化
+        self._matrix = self._norm(encode_fn([f["text"] for f in self.fragments]))
+
+    @staticmethod
+    def _norm(mat):
+        mat = np.asarray(mat, dtype=np.float32)
+        norms = np.linalg.norm(mat, axis=1, keepdims=True) + 1e-8
+        return mat / norms
+
+    def retrieve(self, query, top_k=3):
+        q = self._norm(self.encode_fn([query]))[0]
+        sims = self._matrix @ q
+        top = np.argsort(sims)[::-1][:top_k]
+        out = []
+        for idx in top:
+            f = self.fragments[idx]
+            out.append({"id": f["id"], "score": float(sims[idx]),
+                        "standard": f["standard"], "page": f["page"],
+                        "section": f["section"], "text": f["text"]})
+        return out

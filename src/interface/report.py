@@ -145,6 +145,8 @@ def list_history(limit: int = 20):
                 try:
                     with open(os.path.join(day_dir, fn), encoding="utf-8") as f:
                         rec = json.load(f)
+                    rec["_file"] = os.path.splitext(fn)[0]  # 用于详情回看
+                    rec["_day"] = day
                     records.append(rec)
                 except Exception:
                     pass

@@ -103,6 +103,23 @@ class WinCLIPPatch:
         self.bank_info = {"n_images": len(files), "n_feats": self.bank.shape[0]}
         return self.bank_info
 
+    # ---------- 在线学习（持续学习 / 人在回路） ----------
+    @torch.no_grad()
+    def learn(self, image, save_path=None):
+        """把一张图的 patch 特征并入记忆库（#2 困难样本回灌）。
+        用于人工判错后让系统"见过"该样本，下次同类件更准。"""
+        if isinstance(image, str):
+            image = Image.open(image).convert("RGB")
+        feats = self._get_patch_feats(image)          # [196, D] 已归一化
+        if self.bank is None:
+            self.bank = feats
+        else:
+            self.bank = np.concatenate([self.bank, feats], axis=0)
+        self.bank_info = {"n_feats": self.bank.shape[0], "online_learned": True}
+        if save_path:
+            np.save(save_path, self.bank)
+        return self.bank.shape[0]
+
     # ---------- 检测 ----------
     @torch.no_grad()
     def detect(self, image):

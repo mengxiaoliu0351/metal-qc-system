@@ -31,7 +31,8 @@ DASHSCOPE_API_KEY = os.environ.get(
     "PASTE_YOUR_DASHSCOPE_KEY_HERE")   # 队友在阿里云DashScope申请自己的key，用环境变量配置，不要写进代码
 # 公共endpoint（已实测连通）
 DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-DASHSCOPE_MODEL = "qwen3.6-flash"   # Qwen3.6原生视觉，新主线，不即将下线
+DASHSCOPE_MODEL = "qwen3-vl-plus"   # VLM慢链路：视觉模型（已实测200）
+DASHSCOPE_CHAT_MODEL = "qwen-plus" # AI助手：纯文本问答（更稳定）
 
 # ---------- 本地 Ollama（兜底）----------
 OLLAMA_URL = "http://localhost:11434/api/chat"

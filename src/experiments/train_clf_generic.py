@@ -8,7 +8,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
-from sklearn.metrics import accuracy_score, confusion_matrix
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
 
 ROOT = r"D:\programme file\ResearchArticle"
 sys.path.insert(0, ROOT); sys.path.insert(0, os.path.join(ROOT, "src"))
@@ -77,6 +77,8 @@ def main(product):
     print("        " + "  ".join(f"{l[:4]:>6s}" for l in labels))
     for i, l in enumerate(labels):
         print(f"{l[:6]:<6s}" + "  ".join(f"{cm[i,j]:6d}" for j in range(len(labels))))
+    print("\n分类报告 (含 Macro-F1):")
+    print(classification_report(yte, pred, labels=labels))
     joblib.dump({"clf": clf, "labels": labels, "label_map": lmap, "acc_test": float(acc)}, out_path)
     print(f"已保存 -> {out_path}\n")
 

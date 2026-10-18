@@ -187,9 +187,11 @@ async def detect(file: UploadFile = File(...), product: str = Form("metal_nut"))
         cal = pcfg.get("calibration", {}) or {}
         _med = float(cal.get("median", 0) or 0)
         _mad = float(cal.get("mad", 0) or 0)
-        if _med > 0 and _mad > 0:
+        # t_high优先级: products.json显式配置 > median+3*MAD > t_low*1.5
+        t_high = float(pcfg.get("t_high", 0) or 0)
+        if t_high <= 0 and _med > 0 and _mad > 0:
             t_high = round(_med + 3.0 * _mad, 4)
-        else:
+        if t_high <= 0:
             t_high = round(prod_threshold * 1.5, 4)
         g = gate(score, t_low=prod_threshold, t_high=t_high)
 

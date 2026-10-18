@@ -4,6 +4,7 @@
     "name": "金属螺母 (MVTec metal_nut)",
     "bank": "金属螺母(metal_nut).npy",
     "threshold": 0.2345,
+    "t_high": 0.30,
     "calibration": {
       "threshold": 0.2345,
       "median": 0.0,

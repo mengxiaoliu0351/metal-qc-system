@@ -183,13 +183,20 @@ async def detect(file: UploadFile = File(...), product: str = Form("metal_nut"))
         except Exception as _e:
             print("监督分类失败:", _e)
 
-        # 2. 门控（使用该产品的独立阈值）
-        g = gate(score, threshold=prod_threshold)
+        # 2. 三区间门控（低风险/灰区VLM/高风险）
+        cal = pcfg.get("calibration", {}) or {}
+        _med = float(cal.get("median", 0) or 0)
+        _mad = float(cal.get("mad", 0) or 0)
+        if _med > 0 and _mad > 0:
+            t_high = round(_med + 3.0 * _mad, 4)
+        else:
+            t_high = round(prod_threshold * 1.5, 4)
+        g = gate(score, t_low=prod_threshold, t_high=t_high)
 
-        # 3. 认知层
+        # 3. 认知层：仅灰区调 VLM + 国标 RAG；低/高风险本地直出，省 API 调用
         cognition = None
-        if g["route"] == "slow":
-            # #3 语义检索：用缺陷类型描述做query（不是分数），CLIP空间匹配国标条文
+        if g["route"] == "vlm_review":
+            # 灰区：调 VLM 深度复核 + RAG
             defect_word = "表面缺陷"
             if sup_clf and sup_clf.get("label") and sup_clf["label"] != "正常":
                 defect_word = sup_clf["label"]
@@ -199,33 +206,33 @@ async def detect(file: UploadFile = File(...), product: str = Form("metal_nut"))
             sem_kb = get_sem_kb(engine)
             retrieved = sem_kb.retrieve(query, top_k=3)
             texts = [f"[{r['id']}] P{r['page']} {r['section']}: {r['text']}" for r in retrieved]
-            hint = f"异常分数{score:.4f}，疑似{defect_word}缺陷"
+            hint = f"异常分数{score:.4f}（介于{prod_threshold}与{t_high}之间），疑似{defect_word}缺陷"
             prompt = vlm_api.build_prompt(hint, texts)
             tmp_path = os.path.join(RESULTS_DIR, "perception", "_api_tmp.png")
             img.save(tmp_path)
             cognition = vlm_api.analyze(tmp_path, prompt)
+        elif g["route"] == "high_risk":
+            # 高风险：本地直出"明显异常，建议人工复核"，不调 VLM
+            top_defect = "未知"
+            if sup_clf and sup_clf.get("label") and sup_clf["label"] != "正常":
+                top_defect = sup_clf["label"]
+            elif classification:
+                top_defect = max(classification, key=classification.get)
+            confidence = f"（分类置信度{sup_clf['confidence']*100:.0f}%）" if sup_clf else ""
+            cognition = {
+                "ok": True,
+                "conclusion": "疑似不合格",
+                "defect_desc": f"检测到明显异常区域，疑似{top_defect}缺陷{confidence}" if top_defect != "正常" else "检测到明显局部异常，建议进一步分析",
+                "suggestion": "分数超过高风险阈值，请人工复核确认后签发",
+            }
         else:
-            if score < prod_threshold:
-                cognition = {
-                    "ok": True,
-                    "conclusion": "合格",
-                    "defect_desc": "未发现明显异常",
-                    "suggestion": "正常放行",
-                }
-            else:
-                # 快链路超阈值：优先用监督分类器判类型，回退零样本
-                top_defect = "未知"
-                if sup_clf and sup_clf.get("label") and sup_clf["label"] != "正常":
-                    top_defect = sup_clf["label"]
-                elif classification:
-                    top_defect = max(classification, key=classification.get)
-                confidence = f"（分类置信度{sup_clf['confidence']*100:.0f}%）" if sup_clf else ""
-                cognition = {
-                    "ok": True,
-                    "conclusion": "不合格",
-                    "defect_desc": f"检测到异常区域，疑似{top_defect}缺陷{confidence}" if top_defect != "正常" else "检测到局部异常，建议进一步分析",
-                    "suggestion": "建议人工复核确认",
-                }
+            # 低风险：本地放行，不调 VLM
+            cognition = {
+                "ok": True,
+                "conclusion": "合格",
+                "defect_desc": "异常分数低于低风险阈值，未发现明显异常",
+                "suggestion": "低风险放行，仍建议按抽检比例人工确认",
+            }
 
         # 保存临时文件供PDF报告使用
         import uuid
@@ -320,8 +327,10 @@ async def stats():
     total = len(records)
     today = datetime.now().strftime("%Y-%m-%d")
     today_recs = [r for r in records if r.get("timestamp","").startswith(today)]
-    fail = sum(1 for r in records if (r.get("cognition") or {}).get("conclusion") == "不合格")
-    fast = sum(1 for r in records if r.get("gate",{}).get("route") == "fast")
+    fail = sum(1 for r in records if (r.get("cognition") or {}).get("conclusion") in ("不合格", "疑似不合格"))
+    low_risk = sum(1 for r in records if r.get("gate",{}).get("route") == "low_risk")
+    vlm_review = sum(1 for r in records if r.get("gate",{}).get("route") == "vlm_review")
+    high_risk = sum(1 for r in records if r.get("gate",{}).get("route") == "high_risk")
     products = load_products()
     real_threshold = float(products[0]["threshold"]) if products else THRESHOLD
     return JSONResponse({
@@ -329,8 +338,9 @@ async def stats():
         "today": len(today_recs),
         "fail": fail,
         "pass": total - fail,
-        "fast": fast,
-        "slow": total - fast,
+        "low_risk": low_risk,
+        "vlm_review": vlm_review,
+        "high_risk": high_risk,
         "threshold": real_threshold,
         "product_count": len(products),
     })
@@ -533,25 +543,78 @@ async def feedback(req_data: dict):
     applied = False
     learned = False
     if history_path:
-        save_feedback(history_path, {"label": label, "comment": comment, "message_idx": 0})
+        # 反馈只记录，不自动 learn()。用户点踩≠真标签，防止误判样本污染正常记忆库。
+        # 必须由人工在历史详情页确认"该样本确为缺陷"后，才走 /api/confirm 回灌。
+        save_feedback(history_path, {"label": label, "comment": comment, "message_idx": 0,
+                                     "pending_confirm": (label == "down")})
         applied = True
-        # #2 困难样本在线回灌：人工判错(label=down)时，把该图特征并入记忆库
-        if label == "down":
-            try:
-                with open(history_path, encoding="utf-8") as f:
-                    rec = json.load(f)
-                pkey = rec.get("product_key", "metal_nut")
-                img_path = rec.get("input_png")
-                if img_path and os.path.exists(img_path):
-                    engine, pcfg = get_engine(pkey)
-                    bank_path = os.path.join(BANKS_DIR, pcfg["bank"])
-                    n = engine.learn(img_path, save_path=bank_path)
-                    learned = True
-                    print(f"[在线学习] {pkey} 记忆库已并入困难样本，当前特征数={n}")
-            except Exception as _e:
-                print("在线回灌失败:", _e)
     summary = get_feedback_summary()
-    return JSONResponse({"ok": True, "applied": applied, "learned": learned, "summary": summary})
+    return JSONResponse({"ok": True, "applied": applied, "learned": learned,
+                         "note": "反馈已记录，待人工确认为缺陷后才回灌记忆库", "summary": summary})
+
+
+@app.post("/api/confirm")
+async def confirm(req_data: dict):
+    """人工确认样本：只有质检人员明确判定后才回灌记忆库，防止误污染。
+    body: {session_id, verdict: "ok"|"defect", defect_type: str}"""
+    session_id = req_data.get("session_id", "")
+    verdict = req_data.get("verdict", "")
+    defect_type = req_data.get("defect_type", "")
+    history_dir = os.path.join(RESULTS_DIR, "history")
+
+    history_path = None
+    if session_id and os.path.isdir(history_dir):
+        days = sorted([d for d in os.listdir(history_dir)
+                       if os.path.isdir(os.path.join(history_dir, d))], reverse=True)[:7]
+        for day in days:
+            for fn in os.listdir(os.path.join(history_dir, day)):
+                if not fn.endswith(".json"):
+                    continue
+                p = os.path.join(history_dir, day, fn)
+                try:
+                    with open(p, encoding="utf-8") as f:
+                        rec = json.load(f)
+                    if rec.get("session_id") == session_id:
+                        history_path = p
+                        break
+                except Exception:
+                    continue
+            if history_path:
+                break
+
+    learned = False
+    if history_path and verdict == "defect":
+        # 人工确认是缺陷：把该图特征并入记忆库（缺陷样本回灌，提升同类检出）
+        try:
+            with open(history_path, encoding="utf-8") as f:
+                rec = json.load(f)
+            pkey = rec.get("product_key", "metal_nut")
+            img_path = rec.get("input_png")
+            if img_path and os.path.exists(img_path):
+                engine, pcfg = get_engine(pkey)
+                bank_path = os.path.join(BANKS_DIR, pcfg["bank"])
+                n = engine.learn(img_path, save_path=bank_path)
+                learned = True
+                print(f"[人工确认回灌] {pkey} 记忆库并入已确认缺陷样本，特征数={n}")
+            # 回写人工判定
+            rec["human_verdict"] = {"verdict": "defect", "defect_type": defect_type,
+                                    "confirmed": True, "ts": datetime.now().isoformat()}
+            with open(history_path, "w", encoding="utf-8") as f:
+                json.dump(rec, f, ensure_ascii=False, indent=2)
+        except Exception as _e:
+            print("人工回灌失败:", _e)
+    elif history_path:
+        # 人工判为合格：回写，不进任何库
+        try:
+            with open(history_path, encoding="utf-8") as f:
+                rec = json.load(f)
+            rec["human_verdict"] = {"verdict": verdict, "confirmed": True,
+                                    "ts": datetime.now().isoformat()}
+            with open(history_path, "w", encoding="utf-8") as f:
+                json.dump(rec, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+    return JSONResponse({"ok": True, "learned": learned})
 
 @app.get("/api/feedback/summary")
 async def feedback_summary():

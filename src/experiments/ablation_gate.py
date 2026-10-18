@@ -58,22 +58,22 @@ print(f"测试集: {len(recs)} 张 (正常 {(labels==0).sum()} + 缺陷 {(labels
 print(f"t_low={T_LOW}, t_high={T_HIGH} (启发式暂定)")
 print("=" * 60)
 
-print("\n【1. 单阈值门控（旧设计）】")
+print("\n【1. 纯WinCLIP单阈值基线（无VLM，本地判定）】")
 print(f"  混淆矩阵: TP={tp_single} TN={tn_single} FP={fp_single} FN={fn_single}")
 print(f"  误报(正常判异常): {fp_single}")
 print(f"  漏检(异常判正常): {fn_single}")
-print(f"  VLM调用率: 0% (所有图本地判)")
+print(f"  VLM调用率: 0% (全部本地判定)")
 
-print("\n【2. 三区间门控（新设计）】")
-print(f"  低风险区(s<{T_LOW}): {int(low.sum())}张 (正常{low_fp} + 缺陷{low_fn})")
-print(f"  灰区({T_LOW}<=s<={T_HIGH}): {gray_n}张 (正常{gray_normal} + 缺陷{gray_defect})")
-print(f"  高风险区(s>{T_HIGH}): {int(high.sum())}张 (正常{high_fp} + 缺陷{high_tp})")
-print(f"  VLM调用率: {vlm_rate*100:.1f}% (仅灰区{gray_n}张调VLM)")
+print("\n【2. 三区间门控（低风险本地/灰区调VLM/高风险本地）】")
+print(f"  低风险区(s<{T_LOW}): {int(low.sum())}张 (正常{low_fp} + 缺陷{low_fn}) -> 本地放行")
+print(f"  灰区({T_LOW}<=s<={T_HIGH}): {gray_n}张 (正常{gray_normal} + 缺陷{gray_defect}) -> 调VLM复核")
+print(f"  高风险区(s>{T_HIGH}): {int(high.sum())}张 (正常{high_fp} + 缺陷{high_tp}) -> 本地提示异常")
+print(f"  VLM调用率: {vlm_rate*100:.1f}% (仅灰区{gray_n}张)")
 
-print("\n【3. 对比：误报/漏检】")
-print(f"  单阈值: 误报{fp_single} 漏检{fn_single}")
-print(f"  三区间(理想VLM复核灰区): 误报{fp_ideal} 漏检{fn_ideal}")
-print(f"  三区间(不调VLM, 灰区一律放行): 误报{high_fp} 漏检{fn_ideal+gray_defect}")
+print("\n【3. 对比】")
+print(f"  纯WinCLIP单阈值: 误报{fp_single} 漏检{fn_single} VLM调用0%")
+print(f"  三区间(理论上限: 假设灰区VLM完全正确): 误报{fp_ideal} 漏检{fn_ideal} VLM调用{vlm_rate*100:.0f}%")
+print(f"  注: '理论上限'为假设VLM在灰区100%正确的理想情况, 非实测; t_high={T_HIGH}为工程参考值")
 
 # 保存结果
 out = {

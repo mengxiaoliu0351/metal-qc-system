@@ -2,7 +2,7 @@
 """
 RAG 标准检索 + 引用ID校验
 =========================
-复用先导实验的标准片段库（GB/T 34528-2017）与 TF-IDF 检索逻辑，
+检索项目编写的教学知识卡，保留明确来源类型，
 封装为 KnowledgeBase 类，供 Streamlit 后端调用。
 """
 import csv
@@ -12,39 +12,10 @@ import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-# GB/T 34528-2017《金属材料 表面缺陷目视检测导则》标准片段库
-STANDARD_FRAGMENTS = [
-    {"id": "GB34528-P03-S1", "standard": "GB/T 34528-2017", "page": 3,
-     "section": "范围",
-     "text": "本标准规定了金属材料表面缺陷目视检测的一般要求、检测方法、缺陷分类及评定规则。本标准适用于黑色金属和有色金属材料及制品的表面缺陷目视检测。"},
-    {"id": "GB34528-P05-S2", "standard": "GB/T 34528-2017", "page": 5,
-     "section": "缺陷分类-裂纹",
-     "text": "裂纹是金属表面最危险的缺陷之一，呈直线或曲线状的连续开裂，深度通常大于宽度。裂纹可分为发纹、纵裂、横裂、龟裂等。裂纹缺陷通常判定为不合格，需进一步无损检测确认深度。"},
-    {"id": "GB34528-P06-S3", "standard": "GB/T 34528-2017", "page": 6,
-     "section": "缺陷分类-夹杂",
-     "text": "夹杂是指金属表面存在的非金属夹杂物暴露，呈点状、条状或不规则形状，颜色与基体不同。夹杂根据大小和数量评定，单个夹杂直径大于1mm或密集分布时判定为不合格。"},
-    {"id": "GB34528-P07-S4", "standard": "GB/T 34528-2017", "page": 7,
-     "section": "缺陷分类-划痕",
-     "text": "划痕是金属表面因机械摩擦产生的线状沟槽，深度一般较浅。划痕长度大于5mm或深度超过0.05mm时影响表面质量，需根据使用场合评定。装饰面划痕通常从严判定。"},
-    {"id": "GB34528-P08-S5", "standard": "GB/T 34528-2017", "page": 8,
-     "section": "缺陷分类-锈蚀",
-     "text": "锈蚀是金属表面与环境介质发生化学或电化学作用产生的腐蚀现象，呈红褐色、暗褐色或黑色斑点/片状。初期锈蚀（浮锈）可清除后使用；深度锈蚀导致截面减薄时判定为不合格。"},
-    {"id": "GB34528-P09-S6", "standard": "GB/T 34528-2017", "page": 9,
-     "section": "缺陷分类-变形",
-     "text": "变形是金属零件的几何形状偏离设计要求，包括弯曲、扭曲、凹陷、凸起等。变形影响装配和使用性能时判定为不合格。弯曲变形可用直尺或塞尺测量挠度，超过公差范围即不合格。"},
-    {"id": "GB34528-P10-S7", "standard": "GB/T 34528-2017", "page": 10,
-     "section": "检测条件-光照",
-     "text": "目视检测应在充足的自然光或等效人工照明条件下进行，被检表面照度不应低于500lx。检测人员应距被检表面300mm~500mm，视线与表面夹角不小于30度。必要时使用放大镜辅助观察。"},
-    {"id": "GB34528-P12-S8", "standard": "GB/T 34528-2017", "page": 12,
-     "section": "评定规则-一般原则",
-     "text": "缺陷评定应结合缺陷类型、尺寸、数量、位置及使用场合综合判定。承载面、密封面、装饰面从严判定；非加工面、非关键面可从宽。所有缺陷均应记录位置、类型和尺寸，出具检测报告。"},
-    {"id": "GB34528-P13-S9", "standard": "GB/T 34528-2017", "page": 13,
-     "section": "检测报告",
-     "text": "检测报告应包括以下内容：检测对象名称及编号、检测依据标准、检测环境条件、缺陷位置示意图、缺陷类型及尺寸、评定结论、检测人员及日期。报告应可追溯，保存期不少于产品使用寿命。"},
-    {"id": "GB34528-P15-S10", "standard": "GB/T 34528-2017", "page": 15,
-     "section": "缺陷处置建议",
-     "text": "不合格缺陷的处置方式包括：返修（打磨、补焊、矫形）、降级使用、报废。返修后应重新检测确认。裂纹缺陷一般不允许补焊返修，需整体评估；夹杂和划痕可打磨清除后复测深度。"},
-]
+# No unverified standard body text or page numbers are shipped.
+from cognition.knowledge_sources import PROJECT_NOTES
+STANDARD_FRAGMENTS = PROJECT_NOTES
+
 
 
 class KnowledgeBase:
@@ -52,7 +23,7 @@ class KnowledgeBase:
 
     def __init__(self, fragments=None, csv_path=None):
         self.fragments = fragments or STANDARD_FRAGMENTS
-        self.texts = [f["text"] for f in self.fragments]
+        self.texts = [f.get('section', '') + ' ' + f['text'] for f in self.fragments]
         self.ids = [f["id"] for f in self.fragments]
         self.vectorizer = TfidfVectorizer(
             analyzer="char_wb", ngram_range=(2, 4), max_features=5000)
@@ -67,7 +38,7 @@ class KnowledgeBase:
             writer = csv.DictWriter(
                 f, fieldnames=["id", "standard", "page", "section", "text"])
             writer.writeheader()
-            writer.writerows(self.fragments)
+            writer.writerows({k: f.get(k) for k in ("id", "standard", "page", "section", "text")} for f in self.fragments)
 
     def retrieve(self, query, top_k=3):
         """按缺陷描述检索最相关的标准片段，返回带分数与页码的列表"""
@@ -83,7 +54,8 @@ class KnowledgeBase:
                 "standard": frag["standard"],
                 "page": frag["page"],
                 "section": frag["section"],
-                "text": frag["text"],
+                "text": frag["text"], "source_type": frag.get("source_type"),
+                "verified_standard": frag.get("verified_standard", False),
             })
         return results
 
@@ -137,5 +109,6 @@ class SemanticKnowledgeBase:
             f = self.fragments[idx]
             out.append({"id": f["id"], "score": float(sims[idx]),
                         "standard": f["standard"], "page": f["page"],
-                        "section": f["section"], "text": f["text"]})
+                        "section": f["section"], "text": f["text"], "source_type": f.get("source_type"),
+                        "verified_standard": f.get("verified_standard", False)})
         return out

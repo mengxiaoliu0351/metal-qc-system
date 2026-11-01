@@ -7,6 +7,7 @@
 """
 import json
 import os
+import re
 from datetime import datetime
 
 from reportlab.lib.pagesizes import A4
@@ -20,7 +21,9 @@ from reportlab.pdfbase.ttfonts import TTFont
 
 # 注册中文字体（Windows 自带微软雅黑）
 _FONT_NAME = "Helvetica"
-for fp in [r"C:\Windows\Fonts\msyh.ttc", r"C:\Windows\Fonts\simhei.ttf", r"C:\Windows\Fonts\simsun.ttc"]:
+for fp in [os.environ.get("PDF_CJK_FONT", ""),
+           r"C:\Windows\Fonts\msyh.ttc", r"C:\Windows\Fonts\simhei.ttf", r"C:\Windows\Fonts\simsun.ttc",
+           "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"]:
     if os.path.exists(fp):
         try:
             pdfmetrics.registerFont(TTFont("CN", fp))
@@ -41,27 +44,24 @@ def save_history(result: dict, sample_name: str = ""):
     day_dir = os.path.join(HISTORY_DIR, day)
     os.makedirs(day_dir, exist_ok=True)
     ts = datetime.now().strftime("%H%M%S")
-    name = sample_name or os.path.basename(result.get("input_png", "image"))
+    name = (sample_name or os.path.basename(result.get("input_png", "image"))).replace("\\", "/").split("/")[-1]
     name = os.path.splitext(name)[0]
-    path = os.path.join(day_dir, f"{ts}_{name}.json")
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', name)[:100] or 'image'
+    import uuid
+    suffix = result.get("session_id") or uuid.uuid4().hex[:10]
+    path = os.path.join(day_dir, f"{ts}_{name}_{suffix}.json")
     record = {
         "timestamp": datetime.now().isoformat(),
         "sample_name": name,
         **result,
     }
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(record, f, ensure_ascii=False, indent=2, default=str)
+    from review.workflow import write
+    write(path, record)
     return path
 
 
 def save_feedback(history_path: str, feedback: dict):
-    """把用户反馈追加到历史记录，并触发反哺逻辑。
-    feedback: {"message_idx": int, "label": "up"/"down", "comment": str}
-    反哺：
-    - 👎 自动给该记录打 needs_review 标记（需要人工复核）
-    - 👎 把原图复制到困难样本库（results/difficult_samples/），供后续模型迭代
-    - 👎 累计达到阈值时，返回 "建议重建记忆库" 信号
-    """
+    """保存反馈意见；负反馈加入待复核与困难样本，不修改标签或模型。"""
     if not os.path.exists(history_path):
         return {"ok": False, "reason": "history not found"}
     with open(history_path, encoding="utf-8") as f:
@@ -73,6 +73,7 @@ def save_feedback(history_path: str, feedback: dict):
     # 反哺：👎 标记需要人工复核 + 存困难样本
     if feedback.get("label") == "down":
         rec["needs_review"] = True
+        rec["review_reopened"] = True
         # 把原图复制到困难样本库
         try:
             src = rec.get("input_png")
@@ -86,8 +87,8 @@ def save_feedback(history_path: str, feedback: dict):
                 rec["difficult_sample_path"] = dst
         except Exception:
             pass
-    with open(history_path, "w", encoding="utf-8") as f:
-        json.dump(rec, f, ensure_ascii=False, indent=2, default=str)
+    from review.workflow import write
+    write(history_path, rec)
     return {"ok": True, "needs_review": rec.get("needs_review", False)}
 
 
@@ -99,7 +100,7 @@ def get_feedback_summary():
     - suggestion: 系统级建议（如"某产品建议重建库"）
     """
     total_up = total_down = needs_review = 0
-    down_by_score_range = {"低分区(<0.2)": 0, "阈值附近(0.2-0.3)": 0, "高分区(>0.3)": 0}
+    down_by_score_range = {"低风险": 0, "灰区": 0, "高风险": 0}
     records = list_history(limit=10000)
     for r in records:
         for fb in r.get("feedback", []):
@@ -107,22 +108,12 @@ def get_feedback_summary():
                 total_up += 1
             elif fb.get("label") == "down":
                 total_down += 1
-                s = float(r.get("score", 0))
-                if s < 0.2:
-                    down_by_score_range["低分区(<0.2)"] += 1
-                elif s < 0.3:
-                    down_by_score_range["阈值附近(0.2-0.3)"] += 1
-                else:
-                    down_by_score_range["高分区(>0.3)"] += 1
-        if r.get("needs_review"):
+                route = r.get("gate", {}).get("route", "")
+                key = {"low_risk": "低风险", "vlm_review": "灰区", "high_risk": "高风险"}.get(route, "灰区")
+                down_by_score_range[key] += 1
+        if r.get("needs_review") and not (r.get("human_verdict") or {}).get("confirmed"):
             needs_review += 1
-    suggestion = ""
-    if down_by_score_range["低分区(<0.2)"] >= 3:
-        suggestion = "低分区(分数<0.2)被多次判👎：建议重新检查记忆库，可能有缺陷件被误判为正常"
-    elif down_by_score_range["高分区(>0.3)"] >= 3:
-        suggestion = "高分区(分数>0.3)被多次判👎：建议检查VLM慢链路描述是否准确"
-    elif down_by_score_range["阈值附近(0.2-0.3)"] >= 5:
-        suggestion = "阈值附近大量👎：建议重新校准门控阈值"
+    suggestion = "请在人工复核中确认真实标签；批准用于迭代后再评估候选模型，反馈不会直接改变模型。" if total_down else ""
     return {
         "total_up": total_up, "total_down": total_down,
         "needs_review": needs_review,
@@ -184,87 +175,125 @@ def label_active_learning(record: dict, label: str):
 
 
 def generate_pdf(result: dict, output_path: str, sample_name: str = "未知零件"):
-    """生成正式质检报告 PDF"""
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    doc = SimpleDocTemplate(output_path, pagesize=A4,
-                            leftMargin=2*cm, rightMargin=2*cm,
-                            topMargin=2*cm, bottomMargin=2*cm)
+    """Export saved AI evidence and the separately recorded human final label."""
+    from xml.sax.saxutils import escape
+    from review.workflow import original_prediction
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    doc = SimpleDocTemplate(output_path, pagesize=A4, leftMargin=1.8*cm,
+                            rightMargin=1.8*cm, topMargin=1.6*cm, bottomMargin=1.7*cm)
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle("title", parent=styles["Title"],
-                                fontName=_FONT_NAME, fontSize=18, spaceAfter=12)
-    h2 = ParagraphStyle("h2", parent=styles["Heading2"],
-                         fontName=_FONT_NAME, fontSize=13, spaceAfter=6,
-                         textColor=colors.HexColor("#2c5364"))
-    body = ParagraphStyle("body", parent=styles["Normal"],
-                          fontName=_FONT_NAME, fontSize=10.5, leading=16)
-    small = ParagraphStyle("small", parent=styles["Normal"],
-                           fontName=_FONT_NAME, fontSize=9, textColor=colors.grey)
-
-    story = []
-    story.append(Paragraph("金属表面缺陷智能质检报告", title_style))
-    story.append(Paragraph(f"样品名称：{sample_name} &nbsp;&nbsp;|&nbsp;&nbsp; "
-                           f"检测时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", small))
-    story.append(Spacer(1, 0.5*cm))
-
-    # 基本信息表
-    score = result.get("score", 0.0)
-    gate = result.get("gate", {})
-    cog = result.get("cognition", {})
-    info = [
-        ["异常分数", f"{score:.4f}", "门控阈值", f"{gate.get('threshold', 0.2243):.4f}"],
-        ["路由路径", "快链路（直接输出）" if gate.get("route") == "fast" else "慢链路（深度分析）",
-         "路由标签", gate.get("label", "")],
-        ["VLM结论", cog.get("conclusion", "—") if cog else "—",
-         "引用校验", "通过" if cog and cog.get("validation", {}).get("all_valid") else "—"],
-    ]
-    t = Table(info, colWidths=[3*cm, 5*cm, 3*cm, 5*cm])
-    t.setStyle(TableStyle([
-        ("FONTNAME", (0, 0), (-1, -1), _FONT_NAME),
-        ("FONTSIZE", (0, 0), (-1, -1), 10),
-        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#eef2f5")),
-        ("BACKGROUND", (2, 0), (2, -1), colors.HexColor("#eef2f5")),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 6),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-    ]))
-    story.append(t)
-    story.append(Spacer(1, 0.5*cm))
-
-    # 图像
-    if result.get("input_png") and os.path.exists(result["input_png"]):
-        story.append(Paragraph("① 待检图像", h2))
-        story.append(Image(result["input_png"], width=10*cm, height=10*cm))
-        story.append(Spacer(1, 0.3*cm))
-    if result.get("heatmap_png") and os.path.exists(result["heatmap_png"]):
-        story.append(Paragraph("② WinCLIP 异常热力图", h2))
-        story.append(Image(result["heatmap_png"], width=10*cm, height=10*cm))
-        story.append(Spacer(1, 0.3*cm))
-
-    # VLM 分析
-    if cog and cog.get("ok"):
-        story.append(Paragraph("③ VLM 缺陷分析", h2))
-        story.append(Paragraph(f"<b>判定：</b>{cog.get('conclusion', '')}", body))
-        story.append(Paragraph(f"<b>缺陷描述：</b>{cog.get('defect_desc', '')}", body))
-        story.append(Paragraph(f"<b>处置建议：</b>{cog.get('suggestion', '')}", body))
-        story.append(Spacer(1, 0.2*cm))
-        story.append(Paragraph(f"<b>引用标准：</b>{', '.join(cog.get('ref_ids', []))}", body))
-        if cog.get("retrieved"):
-            story.append(Spacer(1, 0.2*cm))
-            story.append(Paragraph("④ 检索到的标准条款", h2))
-            for r in cog["retrieved"]:
-                story.append(Paragraph(
-                    f"[{r['id']}] P{r['page']} {r['section']}（相似度 {r.get('score', 0):.3f}）："
-                    f"{r['text'][:120]}...", body))
-    elif gate.get("route") == "fast":
-        story.append(Paragraph("③ 快链路输出", h2))
-        story.append(Paragraph(
-            f"异常分数 {score:.4f} ≥ 阈值 {gate.get('threshold', 0.2243):.4f}，"
-            f"直接输出缺陷定位（见热力图）。人工复核后签发。", body))
-
-    story.append(Spacer(1, 1*cm))
-    story.append(Paragraph("—— 本报告由双链路智能质检辅助系统生成，最终结论由人工确认签发 ——", small))
-
-    doc.build(story)
+    title = ParagraphStyle("QCtitle", parent=styles["Title"], fontName=_FONT_NAME,
+                           fontSize=17, leading=24, spaceAfter=10, textColor=colors.HexColor("#233b4a"))
+    heading = ParagraphStyle("QCheading", parent=styles["Heading2"], fontName=_FONT_NAME,
+                             fontSize=11, leading=17, spaceBefore=12, spaceAfter=7,
+                             textColor=colors.HexColor("#355b70"))
+    body = ParagraphStyle("QCbody", parent=styles["Normal"], fontName=_FONT_NAME,
+                          fontSize=9.5, leading=15, spaceAfter=5)
+    small = ParagraphStyle("QCsmall", parent=body, fontSize=8, leading=12,
+                           textColor=colors.HexColor("#617582"))
+    def text(value):
+        return escape(str(value if value is not None else "—")).replace("\n", "<br/>")
+    def para(value, style=body):
+        return Paragraph(text(value), style)
+    def number(value):
+        return f"{value:.4f}" if isinstance(value, (int, float)) else "—"
+    def styled_table(rows, widths):
+        table = Table([[para(cell, small) for cell in row] for row in rows], colWidths=widths)
+        table.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("GRID", (0, 0), (-1, -1), .4, colors.HexColor("#cbd6dd")),
+            ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#edf2f5")),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ("TOPPADDING", (0, 0), (-1, -1), 7),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 7)]))
+        return table
+    gate = result.get("gate") or {}
+    cog = result.get("cognition") or {}
+    human = result.get("human_verdict") or {}
+    from review.disposition import effective_disposition
+    disposition = effective_disposition(result)
+    confirmed = human.get("confirmed") and human.get("verdict") in ("ok", "defect") and not disposition["requires_review"]
+    route = gate.get("route")
+    route_name = {"low_risk": "低风险 / 本地提示", "vlm_review": "灰区 / VLM辅助复核",
+                  "high_risk": "高风险 / 本地提示", "fast": "旧版本地链路",
+                  "slow": "旧版深度链路", "general": "通用视觉直检", "input_review": "输入待核验", "processing_error": "处理异常"}.get(route, "未记录")
+    prediction = original_prediction(result)
+    system_label = {"normal": "正常", "defect": "缺陷"}.get(prediction, "未记录")
+    story = [Paragraph("金属表面缺陷检验报告", title),
+             para(disposition["label"], small),
+             Spacer(1, .35*cm)]
+    story.append(styled_table([
+        ["样品", sample_name, "产品", result.get("product_name", "未记录")],
+        ["原检测时间", result.get("timestamp", "未记录"), "模型版本", result.get("perception_version", "未记录 / 历史版本")],
+        ["异常评分", number(result.get("score")), "系统原始判定", system_label],
+        ["下 / 上阈值", number(gate.get("threshold")) + " / " + number(gate.get("t_high")), "风险分流", route_name],
+        ["AI辅助建议", cog.get("conclusion", "未记录"), "是否调用VLM", "是" if result.get('vlm_called', route in ("vlm_review", "slow", "general")) else "否"]
+    ], [2.5*cm, 5.9*cm, 2.5*cm, 6.5*cm]))
+    story.append(Paragraph("一、作业处置与人工核验", heading))
+    story.append(para("处理状态：" + disposition["label"] + "。" + str(disposition.get("reason", ""))))
+    if result.get("disposition"):
+        story.append(para("作业模式：" + ("验证全检" if disposition.get("mode") == "validation" else "辅助作业") +
+                          "；抽查比例：" + str(round(disposition.get("sample_rate", 0) * 100)) + "%" +
+                          "；本件" + ("被抽中核验" if disposition.get("sampled") else "未被随机抽中") + "。", small))
+    if confirmed:
+        human_label = "正常 / 合格" if human["verdict"] == "ok" else "存在缺陷 / 不合格"
+        agreement = human.get("agreement")
+        if agreement is None and prediction:
+            agreement = prediction == ("normal" if human["verdict"] == "ok" else "defect")
+        story.append(styled_table([
+            ["最终真实标签", human_label, "与系统判定", "一致" if agreement is True else "不一致" if agreement is False else "无法比较"],
+            ["复核人员", human.get("reviewer", "未署名"), "复核时间", human.get("ts", "未记录")],
+            ["缺陷类型", human.get("defect_type") or "—", "迭代授权", "批准用于离线迭代评估" if human.get("use_for_iteration") else "仅保存复核标签"]
+        ], [2.5*cm, 5.9*cm, 2.5*cm, 6.5*cm]))
+        if human.get("note"):
+            story.append(Spacer(1, .2*cm)); story.append(para("核验依据：" + human["note"]))
+        story.append(para("该记录表示人工标签确认，不等同于数字签名或模型已更新；候选版本需另行评估和应用。", small))
+    elif disposition["status"] in ("auto_normal", "auto_isolated"):
+        story.append(para("本次系统判断已自动归档或隔离，尚无人工真实标签。自动结果不计作人工核验正确率，不进入反馈训练标签池。"))
+    else:
+        story.append(para("尚未记录人工最终标签。本报告中的系统分数与AI建议不能替代检验人员的最终判断。"))
+    pictures = []
+    for field, label in (("input_png", "工件原图"), ("heatmap_png", "局部异常热力图")):
+        image_path = result.get(field)
+        if image_path and os.path.isfile(image_path):
+            from PIL import Image as PILImage
+            with PILImage.open(image_path) as im:
+                w, h = im.size
+            scale = min(7.2*cm/w, 6.7*cm/h)
+            pictures.append([para(label, small), Image(image_path, width=w*scale, height=h*scale)])
+    if pictures:
+        story.append(Paragraph("二、检验图像证据", heading))
+        layout = Table([[picture[0] for picture in pictures], [picture[1] for picture in pictures]],
+                       colWidths=[17.4*cm/len(pictures)]*len(pictures))
+        layout.setStyle(TableStyle([("ALIGN", (0,0), (-1,-1), "CENTER"),
+                                   ("VALIGN", (0,0), (-1,-1), "TOP"),
+                                   ("BOTTOMPADDING", (0,0), (-1,-1), 8)]))
+        story.append(layout)
+        story.append(para("热力图仅表示相对异常响应，不代表缺陷尺寸、深度或标准限值。", small))
+    story.append(Paragraph("三、系统辅助分析与处置建议", heading))
+    story.append(para("异常描述：" + str(cog.get("defect_desc") or "未记录")))
+    story.append(para("处置建议：" + str(cog.get("suggestion") or "请结合原图人工复核")))
+    if route in ("vlm_review", "slow", "general"):
+        story.append(para("VLM输出：" + str(cog.get("vlm_conclusion") or cog.get("conclusion") or "未记录")))
+    ids = cog.get("ref_ids") or []
+    refs = cog.get("retrieved") or result.get("references") or []
+    if ids or refs:
+        story.append(Paragraph("四、知识检索与来源说明", heading))
+        if any(str(ref.get('id', '')).startswith('GB34528') for ref in refs):
+            story.append(para('历史引用已停用：原知识库的标准编号及页码未经核实，不能作为国标原文或质量判定依据，请用新版重新检测。'))
+        else:
+            story.append(para('项目知识卡为教学示例，标准目录仅核验编号与名称；本系统尚未接入标准原文，不能据此给出条文或尺寸限值。'))
+        story.append(para("模型引用ID：" + "、".join(map(str, ids))))
+        for ref in refs:
+            location = f" / P{ref['page']}" if ref.get('page') is not None else ''
+            story.append(para(f"[{ref.get('id', '—')}] {ref.get('standard', '')}{location} / {ref.get('section', '')}", small))
+            story.append(para(ref.get("text", "")))
+        story.append(para("检索片段与引用ID仅供核对；应人工确认原文、版本和适用范围。", small))
+    def footer(canvas, document):
+        canvas.setFont(_FONT_NAME, 7)
+        canvas.setFillColor(colors.HexColor("#71818b"))
+        canvas.drawString(1.8*cm, 1.0*cm, "MetalQC · AI自动处理 / 例外复核 / 质量追溯")
+        canvas.drawRightString(A4[0]-1.8*cm, 1.0*cm, f"第 {document.page} 页")
+    doc.build(story, onFirstPage=footer, onLaterPages=footer)
     return output_path

@@ -1,0 +1,175 @@
+/* Readable industrial interface: navy structure, cobalt actions, explicit risk colours. */
+body[data-screen="workspace"] { background:#eef2f7; font-size:16px; color:#182b43; }
+#workspace { --accent:#1559d6; --nav:#11243c; --ink:#182b43; --body:#3f536d; --muted:#52657d; --line:#c7d2e0; }
+#workspace .sidebar { background:#11243c; border-bottom:3px solid #1769e8; min-height:78px; height:78px; padding:0 24px; gap:18px; }
+#workspace .brand { font-size:16px; color:#fff; letter-spacing:.4px; }
+#workspace .brand-mark>span { color:#61b5ff; }
+#workspace .brand small { color:#a8bfd8; font-size:10px; }
+#workspace .nav-item { font-size:15px; font-weight:600; padding:0 15px; color:#d0dcec; }
+#workspace .nav-index { display:none; }
+#workspace .nav-item:hover { background:#203d60; color:white; }
+#workspace .nav-item.active { background:#214266; box-shadow:inset 0 -4px #59b7ff; color:white; }
+#workspace .sidebar-footer { font-size:12px; color:#d2deec; }
+#workspace .topbar { min-height:42px; height:auto; font-size:13px; background:#e3eaf3; color:#405570; padding:9px 24px; }
+#workspace .breadcrumb,#workspace .privacy-tag { font-size:13px; color:#405570; }
+#workspace main { padding:24px; }
+#workspace .page-heading { margin-bottom:20px; }
+#workspace .page-heading h1 { font-size:28px; color:#172d49; letter-spacing:.2px; }
+#workspace .page-heading p { font-size:14px; color:#4d617a; }
+#workspace .eyebrow,#workspace .station-mode { font-size:12px; color:#516780; }
+#workspace .inspection-layout { grid-template-columns:240px minmax(0,1fr) 360px; min-height:780px; height:calc(100dvh - 220px); border-color:#aebed0; background:white; }
+#workspace .setup-panel { background:#f3f6fb; padding:20px 18px; }
+#workspace .result-panel { padding:20px; background:white; }
+#workspace .panel { border-color:#c7d2e0; border-radius:5px; }
+#workspace .panel-heading h2,#workspace .section-heading h2 { font-size:17px; font-weight:650; color:#233c5a; }
+#workspace .section-number { font-size:12px; color:#526d8b; }
+#workspace .caption,#workspace .panel-footnote { font-size:13px; line-height:1.8; color:#52657c; }
+#workspace .field label,#workspace .field-label,#workspace label { font-size:14px; font-weight:600; color:#344d6b; }
+#workspace input,#workspace select,#workspace textarea { min-height:44px; font-size:15px; color:#1f3755; background:white; border:1px solid #a8b9cf; border-radius:4px; padding:10px 12px; }
+#workspace select { padding-right:30px; }
+#workspace input::placeholder,#workspace textarea::placeholder { color:#65768c; }
+#workspace button:focus-visible,#workspace a:focus-visible,#workspace input:focus-visible,#workspace select:focus-visible,#workspace textarea:focus-visible { outline:3px solid #1a70e8; outline-offset:3px; }
+#workspace .button { min-height:46px; padding:11px 16px; font-size:15px; font-weight:650; border-radius:4px; gap:8px; }
+#workspace .button .icon { width:18px; height:18px; }
+#workspace .primary { background:#1559d6; border-color:#124ab2; color:white; }
+#workspace .primary:hover:not(:disabled) { background:#1048b5; border-color:#1048b5; }
+#workspace .secondary { background:#edf4ff; border-color:#8babd5; color:#164c98; }
+#workspace .secondary:hover:not(:disabled) { background:#dceaff; border-color:#477dbf; }
+#workspace .button:disabled { background:#e0e7f0; border-color:#c3cddb; color:#63748b; opacity:1; }
+#workspace #detect-button { min-height:52px; font-size:17px; }
+#workspace .drop-zone { border:2px dashed #91aac8; background:white; min-height:145px; }
+#workspace .drop-zone:hover { background:#e8f1ff; border-color:#1559d6; }
+#workspace .drop-zone strong,#workspace .drop-zone.has-file strong { font-size:15px; font-weight:600; color:#244b7c; }
+#workspace .drop-zone small { font-size:13px; color:#536b87; }
+#workspace .selected-file strong { font-size:13px; color:#243d5d; }
+#workspace .selected-file small { font-size:12px; color:#506984; }
+#workspace .file-thumb { width:40px; height:40px; }
+#workspace .recipe-details,#workspace .threshold-info,#workspace .threshold-info b { font-size:13px; color:#455e7d; }
+#workspace .recipe-details summary { padding:8px 0; }
+#workspace .setup-divider { font-size:13px; color:#415a78; }
+#workspace .setup-divider>.mono { font-size:11px; color:#596f87; }
+#workspace .step strong { font-size:14px; color:#304e72; }
+#workspace .step small,#workspace .setup-footnote { font-size:12px; color:#536a83; }
+#workspace .step>span { font-size:11px; }
+#workspace .visual-panel { background:#0d1c2d; }
+#workspace .visual-panel>.viewport-heading { background:#1c3550; padding:12px 16px; min-height:60px; }
+#workspace .viewport-heading h2 { color:#f0f5fb; font-size:16px; }
+#workspace .viewport-heading .section-number { color:#b8cde4; }
+#workspace .view-tools { border-color:#839bb5; }
+#workspace .view-tools button { min-height:36px; min-width:48px; font-size:13px; font-weight:600; color:#deebfa; padding:6px 10px; border-color:#839bb5; }
+#workspace .view-tools button[aria-pressed=true] { background:#2a62a1; color:white; box-shadow:inset 0 -2px #8acbff; }
+#workspace .image-tile figcaption { font-size:13px; color:#c7d8ec; background:#142b43; }
+#workspace .image-tile figcaption>span:first-child { color:#ebf2fb; }
+#workspace .image-tile .mono { font-size:10px; color:#afc3db; }
+#workspace .channel-id { width:21px; height:21px; font-size:12px; color:#d0e6ff; }
+#workspace .image-stage { padding:16px; background:#0d1c2d; }
+#workspace .image-empty strong { color:#c0d5ec; font-size:16px; }
+#workspace .image-empty small { color:#a7bed8; font-size:13px; }
+#workspace .image-footer,#workspace .heat-legend { font-size:12px; color:#c1d2e5; background:#142b43; }
+#workspace .specimen-library { background:#edf3fb; padding:16px; }
+#workspace .library-heading { align-items:flex-start; flex-wrap:wrap; }
+#workspace .library-heading strong,#workspace .sample-piece strong { font-size:14px; font-weight:600; color:#26486f; }
+#workspace .library-heading>span,#workspace .specimen-library>p { font-size:12px; color:#526b88; }
+#workspace .sample-piece { min-height:78px; padding:10px; background:white; border-color:#acbed5; }
+#workspace .sample-piece[aria-pressed=true] { border:2px solid #2164cc; background:#e8f1ff; box-shadow:none; }
+#workspace .sample-piece strong { white-space:normal; }
+#workspace .sample-piece small { font-size:11px; color:#536d8b; white-space:normal; }
+#workspace .sample-piece img { width:42px; height:42px; }
+#workspace .sample-load { display:none; }
+#workspace .badge { font-size:13px; font-weight:650; padding:5px 9px; border-radius:4px; }
+#workspace .badge.neutral { color:#445971; background:#e9eef5; }
+#workspace .badge.low { color:#146042; background:#ddf3e7; }
+#workspace .badge.gray { color:#805000; background:#fff0c6; }
+#workspace .badge.high { color:#a32327; background:#ffe2e2; }
+#workspace .score-summary .field-label { font-size:14px; color:#465e7c; }
+#workspace .score-value { font-size:50px; color:#173e70; }
+#workspace .score-value small { font-size:11px; color:#5d7491; }
+#workspace .time-summary,#workspace #perception-method { font-size:13px; color:#516782; line-height:1.8; }
+#workspace .risk-ticks,#workspace .risk-thresholds { font-size:12px; color:#465f7c; }
+#workspace .risk-track { height:7px; }
+#workspace .risk-track>span { background:#54ac82; }
+#workspace .risk-track>span:nth-child(2) { background:#e8b847; }
+#workspace .risk-track>span:nth-child(3) { background:#da7074; }
+#workspace .route-row { padding:12px 8px; gap:10px; }
+#workspace .route-row strong { font-size:14px; font-weight:600; color:#344f70; }
+#workspace .route-row small { font-size:12px; color:#526b86; }
+#workspace .route-end { font-size:11px; color:#5c718b; }
+#workspace .route-row.selected[data-route=low_risk] { background:#e8f6ee; box-shadow:inset 3px 0 #208154; }
+#workspace .route-row.selected[data-route=vlm_review] { background:#fff5d9; box-shadow:inset 3px 0 #b77b0e; }
+#workspace .route-row.selected[data-route=high_risk] { background:#ffeded; box-shadow:inset 3px 0 #be373e; }
+#workspace .analysis-empty { font-size:15px; color:#4c6380; }
+#workspace .analysis-empty small,#workspace .human-note { font-size:13px; color:#526982; }
+#workspace .analysis-heading .field-label { font-size:14px; color:#3d587a; }
+#workspace .analysis-heading .caption { font-size:12px; color:#576d87; }
+#workspace #result-verdict { font-size:25px; color:#1d3f69; }
+#workspace .analysis-text,#workspace .suggestion p,#workspace .detail-analysis { font-size:15px; color:#344f6e; line-height:1.85; }
+#workspace .suggestion { background:#edf4ff; border-left:3px solid #5283ce; }
+#workspace .suggestion>span { font-size:13px; font-weight:650; color:#315785; }
+#workspace .probability-row { font-size:14px; color:#405c7e; grid-template-columns:65px 1fr 48px; }
+#workspace .probability-row .mono { font-size:12px; color:#496586; }
+#workspace .probability-bar i { background:#437dce; }
+#workspace .reference-item { border-color:#c4d3e6; border-left-color:#5e86bc; background:#f7faff; }
+#workspace .reference-item strong { font-size:14px; color:#2b507d; }
+#workspace .reference-item small { font-size:12px; color:#506b8d; }
+#workspace .reference-item p { font-size:14px; color:#425d7e; line-height:1.85; }
+#workspace .result-actions { display:grid; grid-template-columns:1fr; padding:14px 0; border-top:1px solid #d2deeb; border-bottom:1px solid #d2deeb; margin:18px 0; gap:9px; }
+#workspace .result-actions .button { font-size:15px; min-height:46px; width:100%; }
+#workspace .feedback-actions { display:block; padding:16px; margin:20px 0; border:1px solid #b5c9e5; background:#f0f5fd; border-radius:5px; color:#344f72; }
+#workspace .feedback-heading strong { display:block; font-size:15px; color:#254b7b; }
+#workspace .feedback-heading span { display:block; font-size:12px; margin:5px 0 12px; line-height:1.7; color:#526b89; }
+#workspace .feedback-buttons { display:grid; grid-template-columns:1fr; gap:8px; }
+#workspace .feedback-actions button { min-height:44px; font-size:14px; font-weight:650; padding:10px; border:1px solid #8cadd6; border-radius:4px; color:#23579a; background:white; }
+#workspace .feedback-actions button[aria-pressed=true] { background:#1559d6; border-color:#1559d6; color:white; }
+#workspace .feedback-actions #feedback-down { color:#9c3c1a; border-color:#d9a47c; background:#fff6e9; }
+#workspace .feedback-actions #feedback-down[aria-pressed=true] { background:#a74422; border-color:#a74422; color:white; }
+#workspace #feedback-comment { margin:12px 0 8px; width:100%; font-size:13px; min-height:64px; resize:vertical; }
+#workspace #feedback-status { font-size:13px; line-height:1.8; margin:10px 0 0; color:#385b85; }
+#workspace #feedback-review { margin-top:12px; width:100%; color:white; background:#1559d6; }
+#workspace .table-scroll { border-color:#c3d1e2; }
+#workspace table { font-size:14px; }
+#workspace th { font-size:14px; font-weight:650; color:#294c77; background:#e6effc; padding:15px; }
+#workspace td { font-size:14px; color:#344f70; padding:16px 15px; border-color:#dce5f1; }
+#workspace td strong { font-size:14px; color:#26476f; }
+#workspace td small { font-size:12px; color:#506b8d; }
+#workspace .text-button { font-size:14px; font-weight:650; color:#1559d6; min-height:40px; padding:8px; }
+#workspace .review-summary strong,#workspace .stat-card>strong { color:#194b89; }
+#workspace .review-summary span,#workspace .stat-card>span { font-size:14px; color:#415d7f; }
+#workspace .review-form h3 { font-size:20px; color:#1c426f; }
+#workspace .review-images figcaption,#workspace .detail-images figcaption { font-size:14px; color:#c0d3e9; }
+#workspace .review-consent { font-size:14px; line-height:1.8; }
+#workspace .review-consent input[type=checkbox] { min-height:20px; width:20px; height:20px; accent-color:#1559d6; }
+#workspace .inline-error { font-size:14px; color:#9c3438; background:#fff0f0; border-color:#dfaaaa; }
+#workspace .progress-message,#workspace .progress-message strong { font-size:14px; color:#2b527e; }
+#workspace .progress-message small,#workspace .progress-message>.mono { font-size:12px; color:#486b92; }
+#workspace .batch-card p,#workspace .batch-card-title strong,#workspace .chat-message,#workspace .chat-message p { font-size:15px; color:#35516f; }
+#workspace .chat-input-row textarea { font-size:15px; }
+#workspace .workspace-footer { font-size:12px; color:#536a83; }
+@media(max-width:1180px) {
+  #workspace .sidebar { display:grid; grid-template-columns:1fr auto; height:auto; padding:14px 20px 0; gap:12px; }
+  #workspace .sidebar nav { grid-column:1/-1; width:100%; order:3; height:54px; margin:0; overflow-x:auto; }
+  #workspace .sidebar-footer { grid-column:2; grid-row:1; }
+  #workspace .nav-item { flex:1; justify-content:center; padding:0 12px; min-height:54px; }
+  #workspace .inspection-layout { grid-template-columns:220px minmax(0,1fr); height:auto; }
+  #workspace .result-panel { grid-column:1/-1; overflow:visible; }
+  #workspace .result-actions { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  #workspace .visual-panel { min-height:640px; }
+  #workspace .feedback-buttons { grid-template-columns:1fr 1fr; }
+}
+@media(max-width:720px) {
+  #workspace main { padding:16px 12px; }
+  #workspace .sidebar { padding:12px 12px 0; }
+  #workspace .sidebar-footer { font-size:11px; }
+  #workspace .nav-item { font-size:14px; min-width:88px; }
+  #workspace .inspection-layout { display:flex; flex-direction:column; }
+  #workspace .inspection-layout>.panel { width:100%; border-right:0; border-bottom:1px solid #c2d2e4; }
+  #workspace .setup-panel { overflow:visible; }
+  #workspace .visual-panel { min-height:520px; }
+  #workspace .view-tools button { min-width:42px; }
+  #workspace .image-stage { padding:8px; }
+  #workspace .sample-piece { flex-direction:column; align-items:flex-start; }
+  #workspace .sample-piece strong { font-size:13px; }
+  #workspace .sample-piece small { font-size:11px; }
+  #workspace .result-actions { grid-template-columns:1fr; }
+  #workspace .feedback-buttons { grid-template-columns:1fr; }
+  #workspace .page-heading h1 { font-size:25px; }
+}

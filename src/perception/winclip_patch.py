@@ -16,7 +16,7 @@ os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
 import open_clip
 
-ROOT = r"D:\programme file\ResearchArticle"
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _WEIGHTS = os.path.join(ROOT, "weights", "CLIP-ViT-B-16-open_clip_model.safetensors")
 N_PATCH = 14  # 224/16
 
@@ -24,6 +24,8 @@ N_PATCH = 14  # 224/16
 class WinCLIPPatch:
     def __init__(self, model_name="ViT-B-16", device=None):
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        if not os.path.isfile(_WEIGHTS):
+            raise FileNotFoundError("缺少 CLIP 预训练权重，禁止使用随机初始化模型进行质检")
         weight = _WEIGHTS if os.path.exists(_WEIGHTS) else None
         self.model, _, self.preprocess = open_clip.create_model_and_transforms(
             model_name, pretrained=weight)
@@ -31,6 +33,7 @@ class WinCLIPPatch:
         self.bank = None          # [M, D]
         self.bank_info = None
         self._patch_cache = {}
+        self._text_features = None
 
         # hook 抓取 patch token（去掉 cls）
         self._patch_feats = {}
@@ -53,34 +56,55 @@ class WinCLIPPatch:
     }
 
     @torch.no_grad()
-    def classify_defect(self, image):
+    def classify_defect(self, image, image_features=None):
         """零样本缺陷类型分类：图像嵌入与各文本提示嵌入算余弦相似度。
         返回 {类型: 概率} 的字典，按概率降序。"""
         if isinstance(image, str):
             image = Image.open(image).convert("RGB")
-        img_tensor = self.preprocess(image).unsqueeze(0).to(self.device)
-        img_feat = self.model.encode_image(img_tensor)
-        img_feat = img_feat / img_feat.norm(dim=-1, keepdim=True)
+        if image_features is None:
+            img_tensor = self.preprocess(image).unsqueeze(0).to(self.device)
+            img_feat = self.model.encode_image(img_tensor)
+            img_feat = img_feat / img_feat.norm(dim=-1, keepdim=True)
+        else:
+            img_feat = torch.as_tensor(image_features, device=self.device).reshape(1, -1)
 
-        text_tokens = open_clip.tokenize(list(self.DEFECT_PROMPTS.values())).to(self.device)
-        txt_feats = self.model.encode_text(text_tokens)
-        txt_feats = txt_feats / txt_feats.norm(dim=-1, keepdim=True)
+        if self._text_features is None:
+            text_tokens = open_clip.tokenize(list(self.DEFECT_PROMPTS.values())).to(self.device)
+            txt_feats = self.model.encode_text(text_tokens)
+            self._text_features = txt_feats / txt_feats.norm(dim=-1, keepdim=True)
+        txt_feats = self._text_features
 
         sims = (img_feat @ txt_feats.T)[0].cpu().numpy()  # [7]
         # softmax转概率
         import numpy as np
-        exp = np.exp(sims * 100)  # 温度系数放大差异
+        logits = sims * 100
+        exp = np.exp(logits - logits.max())
         probs = exp / exp.sum()
         result = dict(zip(self.DEFECT_PROMPTS.keys(), probs.tolist()))
         return dict(sorted(result.items(), key=lambda x: -x[1]))
 
     @torch.no_grad()
     def _get_patch_feats(self, img):
+        return self.extract_features(img)[0]
+
+    @torch.no_grad()
+    def extract_features(self, img):
+        """Reuse one CLIP forward for patch detection and global classification."""
         img_tensor = self.preprocess(img).unsqueeze(0).to(self.device)
-        _ = self.model.encode_image(img_tensor)
+        global_features = self.model.encode_image(img_tensor)
+        global_features = global_features / global_features.norm(dim=-1, keepdim=True)
         feats = self._patch_feats["value"][0]
         feats = feats / feats.norm(dim=-1, keepdim=True)
-        return feats.cpu().numpy()               # [196, D]
+        return feats.cpu().numpy(), global_features[0].cpu().numpy()
+
+    @torch.no_grad()
+    def extract_batch(self, images):
+        batch = torch.stack([self.preprocess(im.convert("RGB")) for im in images]).to(self.device)
+        global_features = self.model.encode_image(batch)
+        global_features = global_features / global_features.norm(dim=-1, keepdim=True)
+        patches = self._patch_feats["value"]
+        patches = patches / patches.norm(dim=-1, keepdim=True)
+        return patches.cpu().numpy(), global_features.cpu().numpy()
 
     # ---------- 建库（带磁盘缓存） ----------
     def build_bank(self, normal_dir, max_samples=80, cache_path=None):
@@ -105,9 +129,10 @@ class WinCLIPPatch:
 
     # ---------- 在线学习（持续学习 / 人在回路） ----------
     @torch.no_grad()
-    def learn(self, image, save_path=None):
-        """把一张图的 patch 特征并入记忆库（#2 困难样本回灌）。
-        用于人工判错后让系统"见过"该样本，下次同类件更准。"""
+    def learn(self, image, save_path=None, *, confirmed_normal=False):
+        """仅供离线审核后追加正常样本；网页反馈统一进入候选池。"""
+        if not confirmed_normal:
+            raise ValueError("正常记忆库仅允许经审核的正常样本；缺陷和未确认反馈只能进入候选池")
         if isinstance(image, str):
             image = Image.open(image).convert("RGB")
         feats = self._get_patch_feats(image)          # [196, D] 已归一化
@@ -127,7 +152,9 @@ class WinCLIPPatch:
             raise RuntimeError("请先 build_bank 构建记忆库")
         if isinstance(image, str):
             image = Image.open(image).convert("RGB")
-        feats = self._get_patch_feats(image)              # [196, D]
+        feats, image_features = self.extract_features(image)
+        if self.bank.ndim != 2 or self.bank.shape[1] != feats.shape[1]:
+            raise ValueError("记忆库与当前模型特征不匹配，请重新建库")
         sims = feats @ self.bank.T                        # [196, M]
         max_sims = sims.max(axis=1)                       # [196]
         anomaly = 1.0 - max_sims                          # [196]
@@ -138,7 +165,7 @@ class WinCLIPPatch:
         heat = self._overlay(image, anomaly_map)
         # 零样本缺陷类型分类
         try:
-            cls = self.classify_defect(image)
+            cls = self.classify_defect(image, image_features=image_features)
         except Exception:
             cls = {}
         return {
@@ -148,6 +175,7 @@ class WinCLIPPatch:
             "patch_max": float(max_sims.max()),
             "bank": self.bank_info,
             "classification": cls,
+            "image_features": image_features,
         }
 
     def _overlay(self, image, anomaly_map):
@@ -163,7 +191,8 @@ class WinCLIPPatch:
         r = r.point(lambda v: min(255, int(v * 2.2)))
         g = g.point(lambda v: int(v * 0.25))
         b = b.point(lambda v: int(v * 0.25))
-        a = a.point(lambda v: int(v * 0.55))  # 透明度55%，更醒目
+        # Opacity must follow anomaly intensity, not the constant RGBA alpha=255.
+        a = hm_img.point(lambda v: int(v * 0.55))
         overlay = Image.merge("RGBA", (r, g, b, a))
         return Image.alpha_composite(canvas.convert("RGBA"), overlay).convert("RGB")
 

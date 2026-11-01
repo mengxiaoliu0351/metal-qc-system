@@ -1,0 +1,40 @@
+{
+    admin off
+    default_sni 8.210.4.196
+}
+
+https://8.210.4.196 {
+    tls {
+        issuer acme https://acme-v02.api.letsencrypt.org/directory {
+            profile shortlived
+        }
+    }
+    request_body {
+        max_size 12MB
+    }
+    reverse_proxy app:8000 {
+        header_up -X-Inspection-Admin
+    }
+    header X-Content-Type-Options nosniff
+    header Referrer-Policy same-origin
+}
+
+metalqc.8-210-4-196.sslip.io {
+    request_body {
+        max_size 12MB
+    }
+    reverse_proxy app:8000 {
+        header_up -X-Inspection-Admin
+    }
+    header X-Content-Type-Options nosniff
+    header Referrer-Policy same-origin
+}
+
+http://:8081 {
+    request_body {
+        max_size 12MB
+    }
+    reverse_proxy app:8000 {
+        header_up X-Inspection-Admin {$INSPECTION_ADMIN_TOKEN}
+    }
+}

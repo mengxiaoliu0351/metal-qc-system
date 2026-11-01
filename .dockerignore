@@ -1,0 +1,9 @@
+*
+!src/
+!src/**
+!deploy/
+!deploy/Dockerfile
+!deploy/requirements-cloud.txt
+**/__pycache__/
+**/*.pyc
+src/perception/weights/

@@ -30,9 +30,9 @@ DASHSCOPE_API_KEY = os.environ.get(
     "DASHSCOPE_API_KEY",
     "PASTE_YOUR_DASHSCOPE_KEY_HERE")   # 队友在阿里云DashScope申请自己的key，用环境变量配置，不要写进代码
 # 公共endpoint（已实测连通）
-DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-DASHSCOPE_MODEL = "qwen3-vl-plus"   # VLM慢链路：视觉模型（已实测200）
-DASHSCOPE_CHAT_MODEL = "qwen-plus" # AI助手：纯文本问答（更稳定）
+DASHSCOPE_BASE_URL = os.environ.get("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+DASHSCOPE_MODEL = os.environ.get("DASHSCOPE_MODEL", "qwen3-vl-plus")
+DASHSCOPE_CHAT_MODEL = os.environ.get("DASHSCOPE_CHAT_MODEL", "qwen-plus")
 
 # ---------- 本地 Ollama（兜底）----------
 OLLAMA_URL = "http://localhost:11434/api/chat"

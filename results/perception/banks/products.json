@@ -3,45 +3,84 @@
     "key": "metal_nut",
     "name": "金属螺母 (MVTec metal_nut)",
     "bank": "金属螺母(metal_nut).npy",
-    "threshold": 0.2345,
-    "t_high": 0.30,
+    "threshold": 0.29198606020672446,
+    "t_high": 0.6459930301033623,
     "calibration": {
+      "method": "labeled-validation-threshold",
+      "normal_calibration_count": 22,
+      "report": "results\\experiments\\perception_upgrade_v1\\metal_nut_report.json",
+      "high_threshold_method": "engineering-review-band; not independently calibrated"
+    },
+    "baseline_perception": {
       "threshold": 0.2345,
-      "median": 0.0,
-      "mad": 0.0,
-      "n_normal": 80,
-      "score_min": 0.0,
-      "score_max": 0.0
-    }
+      "t_high": 0.3,
+      "calibration": {
+        "threshold": 0.2345,
+        "median": 0.0,
+        "mad": 0.0,
+        "n_normal": 80,
+        "score_min": 0.0,
+        "score_max": 0.0
+      }
+    },
+    "perception_artifact": "metal_nut.json",
+    "perception_name": "CLIP 监督二分类",
+    "score_kind": "binary_model_score"
   },
   {
     "key": "screw",
     "name": "金属螺丝 (MVTec screw)",
     "bank": "金属螺丝(screw).npy",
-    "threshold": 0.1788,
+    "threshold": 0.3394939831983531,
     "calibration": {
+      "method": "labeled-validation-threshold",
+      "normal_calibration_count": 33,
+      "report": "results\\experiments\\perception_upgrade_v1\\screw_report.json",
+      "high_threshold_method": "engineering-review-band; not independently calibrated"
+    },
+    "baseline_perception": {
       "threshold": 0.1788,
-      "median": 0.1529,
-      "mad": 0.0172,
-      "n_normal": 240,
-      "score_min": 0.1127,
-      "score_max": 0.3798,
-      "method": "independent-holdout"
-    }
+      "calibration": {
+        "threshold": 0.1788,
+        "median": 0.1529,
+        "mad": 0.0172,
+        "n_normal": 240,
+        "score_min": 0.1127,
+        "score_max": 0.3798,
+        "method": "independent-holdout"
+      }
+    },
+    "perception_artifact": "screw.json",
+    "perception_name": "CLIP 监督二分类",
+    "t_high": 0.7473719784754802,
+    "score_kind": "binary_model_score"
   },
   {
     "key": "grid",
     "name": "金属网格 (MVTec grid)",
     "bank": "金属网格(grid).npy",
-    "threshold": 0.2311,
+    "threshold": 0.3975899878808088,
     "calibration": {
+      "method": "labeled-validation-threshold",
+      "normal_calibration_count": 29,
+      "report": "results\\experiments\\perception_upgrade_v1\\grid_report.json",
+      "high_threshold_method": "engineering-review-band; not independently calibrated"
+    },
+    "baseline_perception": {
       "threshold": 0.2311,
-      "median": 0.2062,
-      "mad": 0.0166,
-      "n_normal": 184,
-      "score_min": 0.1465,
-      "score_max": 0.2884,
-      "method": "independent-holdout"
-    }
+      "calibration": {
+        "threshold": 0.2311,
+        "median": 0.2062,
+        "mad": 0.0166,
+        "n_normal": 184,
+        "score_min": 0.1465,
+        "score_max": 0.2884,
+        "method": "independent-holdout"
+      }
+    },
+    "perception_artifact": "grid.json",
+    "perception_name": "CLIP 异常分数与监督二分类融合",
+    "t_high": 0.6987949939404043,
+    "score_kind": "binary_model_score"
   }
 ]

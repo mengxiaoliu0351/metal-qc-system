@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="450" viewBox="0 0 480 450" fill="none">
+ <defs>
+  <linearGradient id="steel" x1="125" y1="75" x2="330" y2="300" gradientUnits="userSpaceOnUse"><stop stop-color="#aab6db"/><stop offset=".23" stop-color="#414b78"/><stop offset=".48" stop-color="#18213b"/><stop offset=".74" stop-color="#55638c"/><stop offset="1" stop-color="#9dbee0"/></linearGradient>
+  <linearGradient id="side" x1="175" y1="230" x2="300" y2="346" gradientUnits="userSpaceOnUse"><stop stop-color="#10182b"/><stop offset=".5" stop-color="#3b5072"/><stop offset="1" stop-color="#101526"/></linearGradient>
+  <linearGradient id="bevel" x1="150" y1="110" x2="310" y2="270" gradientUnits="userSpaceOnUse"><stop stop-color="#d6dcf9"/><stop offset=".35" stop-color="#607091"/><stop offset=".75" stop-color="#111c36"/><stop offset="1" stop-color="#8e9ed3"/></linearGradient>
+  <radialGradient id="halo"><stop stop-color="#624bdb" stop-opacity=".3"/><stop offset="1" stop-color="#624bdb" stop-opacity="0"/></radialGradient>
+  <linearGradient id="scan" x1="65" y1="160" x2="397" y2="260" gradientUnits="userSpaceOnUse"><stop stop-color="#66dbea" stop-opacity="0"/><stop offset=".5" stop-color="#a5f3ff" stop-opacity=".7"/><stop offset="1" stop-color="#9586ff" stop-opacity="0"/></linearGradient>
+ </defs>
+ <ellipse cx="240" cy="288" rx="215" ry="145" fill="url(#halo)"/>
+ <g transform="rotate(-17 240 220)">
+  <ellipse cx="240" cy="318" rx="153" ry="65" stroke="#6761d8" stroke-opacity=".3"/>
+  <ellipse cx="240" cy="318" rx="179" ry="83" stroke="#6761d8" stroke-opacity=".14" stroke-dasharray="2 8"/>
+  <path d="m240 102 130 76v114l-130 76-130-76V178z" fill="url(#side)" stroke="#6f7bb8" stroke-opacity=".6"/>
+  <path d="m110 178 130 76 130-76v60l-130 76-130-76z" fill="#111a32"/>
+  <path d="m240 56 130 76v106l-130 76-130-76V132z" fill="url(#steel)" stroke="#aebbe1" stroke-opacity=".65"/>
+  <path d="m240 56 130 76-20 13-110-65-110 65-20-13z" fill="#bac2e1" fill-opacity=".3"/>
+  <path d="m240 80 110 65v80l-110 65-110-65v-80z" stroke="url(#bevel)" stroke-width="2"/>
+  <path d="m240 105 88 51v57l-88 52-88-52v-57z" stroke="#9ba9cf" stroke-opacity=".22"/>
+  <ellipse cx="240" cy="185" rx="57" ry="69" fill="#080c1e" stroke="#8793c2" stroke-width="2"/>
+  <ellipse cx="240" cy="188" rx="45" ry="56" fill="#0f152b" stroke="#45517b"/>
+  <path d="M195 183c11 12 28 19 45 19s34-7 45-19M197 169c11 11 26 17 43 17s32-6 43-17M196 197c11 12 27 19 44 19s33-7 44-19M201 213c10 10 24 16 39 16s29-6 39-16" stroke="#667298" stroke-opacity=".55"/>
+  <path d="m110 238 20-13m110 65v24m110-89 20 13m-130 76v54" stroke="#a8b9e0" stroke-opacity=".45"/>
+  <path d="m240 56 130 76v106" stroke="#cad7f5" stroke-opacity=".4"/>
+  <path d="m72 202 168-90 168 90-168 90z" fill="url(#scan)" fill-opacity=".25" stroke="url(#scan)"/>
+  <path d="m105 220 135 76 135-76" stroke="#76d9f2" stroke-opacity=".65"/>
+  <circle cx="349" cy="231" r="3" fill="#9ce4f2"/>
+  <path d="m349 231 42-30h45" stroke="#79c9dd" stroke-opacity=".45"/>
+  <path d="M93 134v-18h18m258 0h18v18M93 242v18h18m258 0h18v-18" stroke="#b4adff" stroke-opacity=".5"/>
+ </g>
+</svg>

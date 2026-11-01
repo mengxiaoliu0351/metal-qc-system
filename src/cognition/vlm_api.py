@@ -10,7 +10,7 @@ VLM 统一调用模块：豆包（火山方舟）/ 通义（DashScope）/ 本地
       "ok": True,
       "conclusion": "不合格",
       "defect_desc": "零件中心区域可见一条线状划痕...",
-      "ref_ids": ["GB34528-P07-S4"],
+      "ref_ids": ["QC-NOTE-04"],
       "suggestion": "建议打磨清除后复测深度...",
       "raw": "VLM原始输出文本",
     }
@@ -30,7 +30,7 @@ from config import (DOUBAO_API_KEY, DOUBAO_BASE_URL, DOUBAO_MODEL,
                     OLLAMA_URL, OLLAMA_MODEL)
 
 # 强制 VLM 输出结构化 JSON 的 Prompt
-SYSTEM_PROMPT = """你是金属表面缺陷质检分析助手。根据用户提供的缺陷区域图像和检索到的国家标准片段，输出质检结论。
+SYSTEM_PROMPT = """你是金属表面缺陷质检分析助手。根据用户提供的缺陷区域图像和检索到的知识材料（来源类型会注明），输出质检结论。
 
 必须严格输出以下 JSON 格式（不要输出其他内容）：
 {
@@ -42,10 +42,11 @@ SYSTEM_PROMPT = """你是金属表面缺陷质检分析助手。根据用户提�
 }
 
 要求：
-1. ref_ids 只能从本次提供的标准片段 ID 中选取，禁止编造不存在的 ID；
+1. ref_ids 只能从本次提供的知识材料 ID 中选取，禁止编造不存在的 ID；
 2. defect_desc 基于图像实际内容描述，不超过80字；
 3. defect_type 必须从给定选项中选一个，不准自造；
-4. suggestion 结合标准条文给出。"""
+4. suggestion 结合材料给出观察与核验建议。项目知识卡是教学示例，标准目录只有编号名称，都不是国标原文，不得据此引用条款或编造限值。
+5. 单张无标尺图像不能量化实际尺寸或深度，不能给出毫米、照度等未经证实的限值。"""
 
 
 def _encode_image(image_path: str) -> str:
@@ -66,6 +67,7 @@ def _call_openai_compat(base_url, api_key, model, image_path, prompt, timeout=12
             ]},
         ],
         "temperature": 0.2,
+        "max_tokens": 1024,
         "enable_thinking": False,  # 关掉思考模式，演示要快
     }
     resp = requests.post(
@@ -147,16 +149,17 @@ def analyze(image_path, prompt, backend=None, provider=None) -> dict:
     except requests.exceptions.Timeout:
         return {"ok": False, "error": "API 请求超时（120秒），请检查网络"}
     except Exception as e:
-        return {"ok": False, "error": f"VLM 调用失败: {e}"}
+        from web.public_demo import PUBLIC_REQUEST
+        return {"ok": False, "error": "AI复核暂不可用，请人工复核。" if PUBLIC_REQUEST.get() else f"VLM 调用失败: {e}"}
 
 
 def build_prompt(defect_hint: str, retrieved_texts: list) -> str:
     """构造认知层 Prompt：缺陷提示 + 检索到的标准片段"""
     prompt = f"请分析以下金属表面缺陷区域。\n缺陷定位提示：{defect_hint}\n\n"
-    prompt += "可引用的国家标准片段：\n"
-    for i, t in enumerate(retrieved_texts, 1):
-        prompt += f"[{i}] {t}\n"
-    prompt += "\n请基于图像与上述标准输出质检结论（JSON格式）。"
+    prompt += "可引用的知识材料（教学知识卡与标准目录均不是国标原文）：\n"
+    for t in retrieved_texts:
+        prompt += f"{t}\n"
+    prompt += "\n请基于图像与上述材料输出辅助判断，证据不足时结论为需复核（JSON格式）。"
     return prompt
 
 
@@ -171,7 +174,7 @@ def chat_ask(image_path: str, history: list, user_question: str, context_summary
     sys_prompt = ("你是金属表面缺陷质检智能助手。基于提供的零件图像和以下检测结果，"
                   "用中文简洁回答用户追问。不要输出JSON，自然语言即可。\n\n"
                   f"【当前检测结果】\n{context_summary}\n\n"
-                  "回答要求：专业、简洁（3-5句话），可引用GB/T 34528-2017相关条款（引用格式GB34528-PXX-SX）。")
+                  "回答要求：专业、简洁（3-5句话），只能引用当前上下文提供的真实 ID。不得编造标准号、条款、页码或尺寸限值。")
 
     msgs = [{"role": "system", "content": sys_prompt}]
     for m in history:

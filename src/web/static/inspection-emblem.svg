@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="260" viewBox="0 0 480 260" fill="none">
+  <defs>
+    <linearGradient id="face" x1="170" y1="50" x2="330" y2="205" gradientUnits="userSpaceOnUse"><stop stop-color="#638176" stop-opacity=".38"/><stop offset=".5" stop-color="#2f3e37" stop-opacity=".22"/><stop offset="1" stop-color="#9ec8b6" stop-opacity=".17"/></linearGradient>
+    <linearGradient id="edge" x1="173" y1="70" x2="325" y2="186" gradientUnits="userSpaceOnUse"><stop stop-color="#bce8cf"/><stop offset=".5" stop-color="#537b67"/><stop offset="1" stop-color="#bce8cf"/></linearGradient>
+    <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse"><path d="M28 0H0v28" stroke="#96bba7" stroke-opacity=".08"/></pattern>
+  </defs>
+  <path fill="url(#grid)" d="M30 12h420v224H30z"/>
+  <g stroke="#88b49a" stroke-opacity=".18"><ellipse cx="253" cy="135" rx="147" ry="85" transform="rotate(-22 253 135)"/><ellipse cx="253" cy="135" rx="122" ry="110" transform="rotate(25 253 135)"/><path d="M253 19v232M94 135h319" stroke-dasharray="3 7"/></g>
+  <path d="m252 33 93 54v103l-93 54-93-54V87z" fill="#0e1411" stroke="#476352" stroke-opacity=".55"/>
+  <path d="m252 33 93 54-20 12-73-42-73 42-20-12z" fill="#506c5b" fill-opacity=".3"/>
+  <path d="m345 87-20 12v80l-73 42v23l93-54z" fill="#39513e" fill-opacity=".45"/>
+  <path d="m252 33 93 54v103l-93 54-93-54V87z" stroke="url(#edge)" stroke-width="1.2"/>
+  <path d="m252 57 73 42v80l-73 42-73-42V99z" fill="url(#face)" stroke="#87b79a" stroke-opacity=".8"/>
+  <ellipse cx="252" cy="138" rx="46" ry="52" fill="#111a15" stroke="#6f9f80"/>
+  <ellipse cx="252" cy="138" rx="36" ry="42" stroke="#496e53"/>
+  <path d="M216 138c0-24 16-43 36-43M288 138c0 24-16 43-36 43" stroke="#a8d8b7" stroke-opacity=".7"/>
+  <path d="m159 87 20 12m146 80 20 11m-93 31v23m-73-65-20 11m166-91 20-12" stroke="#658d70"/>
+  <g stroke="#a6e4bb" stroke-width="1.3"><path d="M139 85V65h20m186 0h20v20M139 191v20h20m186 0h20v-20"/><path d="M170 121h166" stroke-opacity=".6"/></g>
+  <path d="m318 168 46-30h51m-229-37-48-50H89" stroke="#a6e4bb" stroke-opacity=".6"/>
+  <g fill="#b7ebc7"><circle cx="318" cy="168" r="3"/><circle cx="186" cy="101" r="3"/></g>
+  <g fill="#89ab95" font-family="Consolas,monospace" font-size="8" letter-spacing="1"><text x="371" y="131">LOCALIZE</text><text x="56" y="44">SURFACE</text></g>
+</svg>

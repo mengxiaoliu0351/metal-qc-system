@@ -10,8 +10,9 @@ import os
 import numpy as np
 from PIL import Image
 import joblib
+import warnings
 
-ROOT = r"D:\programme file\ResearchArticle"
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CLF_PATH = os.path.join(ROOT, "results", "perception", "classifier_metal_nut.joblib")
 
 
@@ -19,19 +20,58 @@ class DefectClassifier:
     def __init__(self, clf_path=CLF_PATH):
         self.bundle = None
         self.labels = None
+        self.params = None
         if clf_path and os.path.exists(clf_path):
-            self.bundle = joblib.load(clf_path)
-            self.labels = self.bundle.get("labels")
+            # Read numerical parameters rather than calling a pickled sklearn
+            # estimator across versions (the old files lack multi_class).
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message="Trying to unpickle estimator.*")
+                self.bundle = joblib.load(clf_path)
+            pipeline = self.bundle["clf"]
+            scaler, classifier = pipeline.named_steps["sc"], pipeline.named_steps["clf"]
+            self.params = {
+                "mean": np.asarray(scaler.mean_), "scale": np.asarray(scaler.scale_),
+                "coef": np.asarray(classifier.coef_),
+                "intercept": np.asarray(classifier.intercept_),
+                "classes": np.asarray(classifier.classes_),
+                "ovr": (getattr(classifier, "multi_class", None) == "ovr"
+                        or getattr(classifier, "solver", None) == "liblinear"),
+            }
+            self.labels = self.params["classes"].tolist()
 
     @property
     def available(self):
         return self.bundle is not None
 
-    def predict(self, det, image):
+    def predict_features(self, features):
+        """StandardScaler + logistic regression, using stable NumPy inference."""
+        if not self.available:
+            return None
+        p = self.params
+        x = np.asarray(features, dtype=np.float64).reshape(1, -1)
+        if x.shape[1] != len(p["mean"]) or not np.isfinite(x).all():
+            raise ValueError("分类特征维度不匹配或包含无效值")
+        logits = ((x - p["mean"]) / np.where(p["scale"] == 0, 1, p["scale"])) @ p["coef"].T + p["intercept"]
+        if logits.shape[1] == 1:
+            positive = 1.0 / (1.0 + np.exp(-np.clip(logits[0, 0], -700, 700)))
+            probabilities = np.array([1 - positive, positive])
+        elif p["ovr"]:
+            probabilities = 1.0 / (1.0 + np.exp(-np.clip(logits[0], -700, 700)))
+            probabilities /= probabilities.sum()
+        else:
+            probabilities = np.exp(logits[0] - logits[0].max())
+            probabilities /= probabilities.sum()
+        probs = {str(label): float(value) for label, value in zip(p["classes"], probabilities)}
+        return {"label": str(p["classes"][probabilities.argmax()]),
+                "confidence": float(probabilities.max()), "probs": probs}
+
+    def predict(self, det, image, image_features=None):
         """det: 已加载的 WinCLIPPatch；image: 路径或PIL。
         返回 {"label":str, "confidence":float, "probs":{label:prob}}"""
         if not self.available:
             return None
+        if image_features is not None:
+            return self.predict_features(image_features)
         import torch
         if isinstance(image, str):
             image = Image.open(image).convert("RGB")
@@ -40,11 +80,7 @@ class DefectClassifier:
             f = det.model.encode_image(t)
             f = f / f.norm(dim=-1, keepdim=True)
         feat = f[0].cpu().numpy().reshape(1, -1)
-        clf = self.bundle["clf"]
-        label = clf.predict(feat)[0]
-        proba = clf.predict_proba(feat)[0]
-        probs = {l: float(p) for l, p in zip(clf.classes_, proba)}
-        return {"label": label, "confidence": float(max(proba)), "probs": probs}
+        return self.predict_features(feat)
 
 
 if __name__ == "__main__":

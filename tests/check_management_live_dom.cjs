@@ -1,0 +1,31 @@
+// Read actual local API data into a DOM; no browser engine or write requests.
+const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),assert=require('node:assert/strict');
+const {JSDOM,VirtualConsole}=require(process.env.METALQC_DOM_MODULE||'jsdom');
+const root=path.resolve(__dirname,'..'),assets=path.join(root,'src/web/static'),errors=[],requests=[];
+const vc=new VirtualConsole();vc.on('jsdomError',e=>errors.push(e.message));
+const dom=new JSDOM(fs.readFileSync(path.join(assets,'index.html'),'utf8'),{url:'http://127.0.0.1:8000/#detect',runScripts:'outside-only',virtualConsole:vc,pretendToBeVisual:true});
+const w=dom.window;w.scrollTo=()=>{};w.HTMLElement.prototype.scrollIntoView=()=>{};
+w.fetch=async(url,options={})=>{assert.equal(options.method||'GET','GET','live check must be read-only');requests.push(String(url));return fetch(new URL(url,'http://127.0.0.1:8000'),options);};
+const execute=code=>vm.runInContext(code,dom.getInternalVMContext());
+const waitFor=async(test)=>{const until=Date.now()+12000;while(!test()){if(Date.now()>until)throw Error('DOM state timed out');await new Promise(r=>setTimeout(r,40));}};
+for(const s of w.document.querySelectorAll('script[src]'))execute(fs.readFileSync(path.join(assets,s.getAttribute('src').split('/').pop().split('?')[0]),'utf8'));
+(async()=>{
+ const d=w.document;await waitFor(()=>d.querySelector('#product-select').options.length>1);
+ execute('goPage("dashboard")');await waitFor(()=>d.querySelector('#quality-reviewed').textContent.length>0);
+ assert.equal(d.querySelector('#dashboard-error').hidden,true);assert.ok(!/undefined|NaN/.test(d.querySelector('#page-dashboard').textContent));
+ execute('goPage("products")');await waitFor(()=>d.querySelector('#runtime-config-list tbody'));
+ assert.equal(d.querySelector('#catalog-error').hidden,true);assert.match(d.querySelector('#runtime-config-list').textContent,/头部俯视.*已暂停，全部复核/s);
+ assert.ok(!requests.some(p=>/\/matching|\/body-quality|\/appearance\?/.test(p)));
+ w.ProductUI.selectTab('samples');await waitFor(()=>d.querySelector('#catalog-select').options[0]?.value);
+ assert.equal(d.querySelector('#catalog-error').hidden,true);assert.ok(d.querySelector('#catalog-builds .catalog-build'));
+ w.ProductUI.selectTab('research');await waitFor(()=>d.querySelector('#research-status').textContent.includes('评估资料已读取'));
+ assert.ok(d.querySelector('#family-metrics table'));assert.equal(d.querySelector('#family-benchmark').open,false);
+ d.querySelector('[data-research-view="appearance"]').click();await waitFor(()=>!d.querySelector('#family-gallery-status').textContent.includes('读取')&&d.querySelector('#family-gallery-status').textContent.length);
+ assert.ok(d.querySelector('.family-sample'));assert.match(d.querySelector('#family-gallery').textContent,/质量标签：来源未提供/);
+ d.querySelector('[data-research-view="trial"]').click();await waitFor(()=>!d.querySelector('#appearance-status').textContent.includes('正在读取')&&!d.querySelector('#body-quality-status').textContent.includes('正在读取'));
+ assert.equal(d.querySelector('#research-trial').hidden,false);assert.ok(!d.querySelector('#appearance-status').textContent.includes('暂不可用'));
+ assert.ok(!d.querySelector('#body-quality-status').textContent.includes('暂不可用'));
+ assert.deepEqual(errors,[]);assert.equal(d.querySelectorAll('[id]').length,new Set([...d.querySelectorAll('[id]')].map(n=>n.id)).size);
+ console.log(`Live API + DOM checks passed (${requests.length} read-only requests): dashboard, version hold, config, sample/build history, reports, appearance gallery and advanced research.`);
+ dom.window.close();
+})().catch(e=>{dom.window.close();console.error(e);process.exitCode=1;});

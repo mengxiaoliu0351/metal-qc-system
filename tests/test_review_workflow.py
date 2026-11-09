@@ -100,6 +100,20 @@ class ReviewWorkflowTests(unittest.TestCase):
         self.assertEqual(self.workflow.approved("metal_nut"),[])
         self.assertEqual(before,bank.read_bytes())
 
+    def test_sealed_evaluation_and_conflicting_dataset_replay_cannot_train(self):
+        path = self.record(self.split["train"][1])
+        record = read(path)
+        record.update(record_scope="evaluation")
+        write(path, record)
+        with self.assertRaisesRegex(ValueError, "封存评估"): self.confirm()
+        self.assertEqual(self.workflow.queue()["count"], 0)
+        record.update(record_scope="simulation", source_annotation={"source": "fixture", "label": "defect"})
+        write(path, record)
+        with self.assertRaisesRegex(ValueError, "来源不一致"): self.confirm(verdict="ok")
+        annotation = self.confirm()["annotation"]
+        self.assertEqual(annotation["verification_method"], "dataset_label_replay")
+        self.assertEqual(annotation["label_source"], "fixture")
+
     def test_model_candidate_improves_then_publish_and_rollback_are_paired(self):
         self.record(self.split["train"][1]);self.confirm()
         config_before=(self.workflow.config).read_bytes()
@@ -193,6 +207,21 @@ class ReviewWorkflowTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'复核图像已变化'):
             self.workflow.activate(run_id)
 
+    def test_new_retained_reservations_block_feedback_training_but_allow_label_storage(self):
+        path=self.record(self.split['train'][1]);record=read(path)
+        fingerprint=image_hash(record['input_png'])
+        write(self.results/'evaluation_reservations.json',{'products':{self.product:{fingerprint:{'experiment':'fixture'}}}})
+        with self.assertRaisesRegex(ValueError,'留出评估'):
+            self.confirm()
+        response=self.workflow.confirm({'session_id':'review','verdict':'defect','reviewer':'fixture','use_for_iteration':False})
+        self.assertTrue(response['ok']);self.assertEqual(self.workflow.approved(self.product),[])
+
+    def test_global_sealed_dataset_cannot_reenter_under_another_product(self):
+        path=self.record(self.split['train'][1]);fingerprint=image_hash(read(path)['input_png'])
+        write(self.results/'evaluation_reservations.json',{'global':{fingerprint:{'dataset':'BODY','role':'test'}}})
+        self.assertIn(fingerprint,self.workflow.reserved_images('another-product'))
+        with self.assertRaisesRegex(ValueError,'留出评估'):self.confirm()
+
     def test_api_uses_archived_records_and_exports_human_verdict_pdf(self):
         path=self.record(self.split["train"][1])
         with patch.object(server,"RESULTS_DIR",str(self.results)),patch.object(server,"_review_workflow",self.workflow):
@@ -210,6 +239,20 @@ class ReviewWorkflowTests(unittest.TestCase):
                 self.assertIn("人工已确认",text)
             self.assertIn("不一致",text)
             self.assertNotIn("慢链路（深度分析）",text)
+
+    def test_pdf_keeps_local_prediction_separate_from_gray_abstention_and_quality_hold(self):
+        from interface.report import generate_pdf
+        import fitz
+        path=self.record(self.split['train'][1]); record=read(path)
+        record.update(perception_prediction='defect',cognition={'conclusion':'需复核','suggestion':'系统已隔离'})
+        record['disposition']={'status':'needs_review','label':'待人工复核','requires_review':True,'reason':'当前版本自动处置暂停'}
+        record['gate']['route']='vlm_review'
+        target=self.results/'report.pdf';generate_pdf(record,str(target))
+        with fitz.open(target) as doc:text=''.join(page.get_text() for page in doc)
+        self.assertIn('本地整图判定',text);self.assertIn('缺陷',text);self.assertIn('需复核',text)
+        record['gate']['route']='high_risk';generate_pdf(record,str(target))
+        with fitz.open(target) as doc:text=''.join(page.get_text() for page in doc)
+        self.assertIn('当前需人工核验',text);self.assertNotIn('系统已隔离',text)
 
     def test_calibration_has_both_labels_and_high_risk_constraints(self):
         y=np.array([0]*24+[1]*24);scores=np.r_[np.linspace(.01,.3,24),np.linspace(.4,.95,24)]

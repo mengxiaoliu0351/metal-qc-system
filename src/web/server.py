@@ -2,9 +2,10 @@
 """FastAPI后端：包装检测逻辑，提供REST接口给HTML前端"""
 import os, sys, io, json, base64, time, threading
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import Optional
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
@@ -22,6 +23,14 @@ from cognition import vlm_api
 from web.public_demo import PUBLIC_REQUEST, PublicDemoMiddleware
 
 app = FastAPI(title="智能质检系统API")
+from web.family_api import router as family_router
+app.include_router(family_router)
+from web.body_quality_api import router as body_quality_router
+app.include_router(body_quality_router)
+from web.family_inspection import router as family_inspection_router
+app.include_router(family_inspection_router)
+from web.screw_delivery_api import router as screw_delivery_router
+app.include_router(screw_delivery_router)
 if os.environ.get("PUBLIC_DEMO", "0") == "1":
     app.add_middleware(PublicDemoMiddleware, admin_token=os.environ.get("INSPECTION_ADMIN_TOKEN", ""),
                        results_dir=RESULTS_DIR, daily_limit=int(os.environ.get("PUBLIC_DAILY_LIMIT", "60")))
@@ -50,6 +59,9 @@ _current_product = None
 _optimized_models = {}
 _patchcore_features = None
 _review_workflow = None
+_product_catalog = None
+_batch_service = None
+_recipe_hashes = {}
 
 BANKS_DIR = os.path.join(RESULTS_DIR, "perception", "banks")
 
@@ -85,6 +97,94 @@ def workflow_call(operation, *args, **kwargs):
         raise HTTPException(404, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+def get_product_catalog():
+    global _product_catalog
+    from products.catalog import ProductCatalog
+    if _product_catalog is None or str(_product_catalog.results) != str(RESULTS_DIR):
+        def extract(samples, progress):
+            from perception.feature_backends import cosine_anomalies
+            vectors = [None] * len(samples)
+            scores = np.zeros(len(samples))
+            bank_indices = [i for i, s in enumerate(samples) if s["role"] == "bank"]
+            others = [i for i, s in enumerate(samples) if s["role"] != "bank"]
+            patches = []
+            done = 0
+            for indices in (bank_indices, others):
+                for start in range(0, len(indices), 2):
+                    current = indices[start:start + 2]
+                    with _inference_lock:
+                        detector, _ = get_engine(load_products()[0]["key"])
+                        images = []
+                        for i in current:
+                            with Image.open(os.path.join(ROOT, samples[i]["path"])) as image:
+                                images.append(image.convert("RGB"))
+                        local, global_vectors = detector.extract_batch(images)
+                    for i, local_features, vector in zip(current, local, global_vectors):
+                        vectors[i] = vector
+                        if samples[i]["role"] == "bank":
+                            patches.append(local_features)
+                        else:
+                            scores[i] = float(cosine_anomalies(local_features, bank).max())
+                    done += len(current)
+                    progress(done, len(samples))
+                if indices is bank_indices:
+                    bank = np.concatenate(patches, axis=0)
+            return {"bank": bank, "global_features": np.asarray(vectors), "clip_scores": scores}
+        _product_catalog = ProductCatalog(ROOT, RESULTS_DIR, extractor=extract, lock=get_review_workflow().lock)
+    return _product_catalog
+
+
+def get_batch_service():
+    global _batch_service
+    from review.batches import BatchService
+    from review.workflow import file_hash
+    if _batch_service is None or str(_batch_service.results) != str(RESULTS_DIR):
+        def recipe(product):
+            if isinstance(product,str) and product.startswith('family:'):
+                from web.family_inspection import batch_recipe
+                return batch_recipe(product.split(':',1)[1],recipe)
+            config = next((p for p in load_products() if p["key"] == product), None)
+            if config is None: raise ValueError("请选择已接入的产品")
+            paths = [os.path.join(BANKS_DIR, config["bank"])]
+            if config.get("perception_artifact"):
+                meta = os.path.join(RESULTS_DIR, "perception/optimized", config["perception_artifact"])
+                with open(meta, encoding="utf8") as stream:
+                    model_metadata = json.load(stream)
+                paths += [meta, os.path.join(os.path.dirname(meta), model_metadata["arrays"])]
+            for relative in (f"results/perception/classifier_{product}.joblib", "src/cognition/vlm_api.py",
+                             "src/review/disposition.py", "src/perception/winclip_patch.py"):
+                path = os.path.join(ROOT, relative)
+                if os.path.isfile(path): paths.append(path)
+            hashes = {}
+            for path in paths:
+                stat = os.stat(path)
+                stamp = (path, stat.st_size, stat.st_mtime_ns)
+                if stamp not in _recipe_hashes: _recipe_hashes[stamp] = file_hash(path)
+                hashes[os.path.relpath(path, RESULTS_DIR)] = _recipe_hashes[stamp]
+            return {"config": config, "files": hashes}
+        def detect(content, filename, product):
+            if product.startswith('family:'):
+                from web.family_inspection import inspect
+                return inspect(content,filename,product.split(':',1)[1])
+            return json.loads(_locked_detection(content, filename, product).body)
+        def recover(context):
+            for _, record in get_review_workflow().records():
+                if all(record.get(k) == v for k, v in context.items()):
+                    gate = record["gate"]
+                    return {**{k: record.get(k) for k in ("session_id", "score", "cognition", "disposition", "time_total", "vlm_called", "perception_prediction", "baseline_score", "perception_method", "quality_check", "family_key", "family_name", "family_routing", "family_action", "quality_model_bound", "iteration_eligible")},
+                            "ok": gate["route"] != "processing_error", "route": gate["route"],
+                            "threshold": gate.get("threshold"), "t_high": gate.get("t_high")}
+            return None
+        _batch_service = BatchService(RESULTS_DIR, recipe, detect, recover,
+                                      evaluate=get_review_workflow().policy().observe_evaluation)
+    return _batch_service
+
+
+@app.on_event("startup")
+def restore_batch_jobs():
+    get_batch_service()
 
 
 def reset_product_cache():
@@ -204,7 +304,9 @@ def product_high_threshold(pcfg):
 async def list_products():
     """列出可用产品记忆库 + VLM通用兜底模式"""
     products = load_products()
+    from web.family_inspection import inspection_targets
     return JSONResponse({
+        "inspection_targets":inspection_targets(products,RESULTS_DIR),
         "products": [{"key": p["key"], "name": p["name"],
                       "threshold": p["threshold"],
                       "t_high": product_high_threshold(p),
@@ -214,6 +316,119 @@ async def list_products():
     })
 
 
+@app.get("/api/product-catalog")
+def product_catalog_list():
+    products = get_product_catalog().list()
+    policy = get_review_workflow().policy()
+    configs = {c["key"]: c for c in load_products()}
+    holds = policy.settings().get("holds", {})
+    for product in products:
+        if product["key"] not in configs: continue
+        try:
+            profile = policy.profile(configs[product["key"]])
+            hold = holds.get(product["key"] + ":" + profile["model_key"])
+            product["runtime_automation"] = {"held": bool(hold), "reason": (hold or {}).get("reason", ""),
+                "allow_normal": bool(profile["allow_normal"] and not hold),
+                "allow_isolate": bool(profile["allow_isolate"] and not hold)}
+        except (OSError, ValueError, KeyError, TypeError):
+            product["runtime_automation"] = {"held": True, "reason": "当前版本缺少配套评估", "allow_normal": False, "allow_isolate": False}
+    return {"ok": True, "products": products}
+
+
+@app.post("/api/product-catalog")
+def product_catalog_create(request: dict):
+    return workflow_call(get_product_catalog().create, request)
+
+
+@app.get("/api/product-catalog/{key}")
+def product_catalog_detail(key: str):
+    return workflow_call(get_product_catalog().detail, key)
+
+
+@app.post("/api/product-catalog/{key}/batches")
+def catalog_sample_batch(key: str, request: dict):
+    from review.workflow import read
+    catalog = get_product_catalog()
+    product = workflow_call(read, catalog.folder(key) / "product.json")
+    if not product.get("active_build"): raise HTTPException(400, "请先完成建库并接入产品")
+    role = request.get("role", "test")
+    if role not in ("test", "feedback"): raise HTTPException(400, "请选择封存测试或后续核验样本")
+    samples = [s for s in product["samples"] if s["role"] == role]
+    if role == "feedback":
+        normal = sorted((s for s in samples if s["label"] == "normal"), key=lambda x: x["pixel_hash"])[:20]
+        defects = sorted((s for s in samples if s["label"] == "defect"), key=lambda x: x["pixel_hash"])[:20]
+        samples = normal + defects
+    return workflow_call(get_batch_service().from_catalog, key, samples, ROOT, product["source"],
+                         "evaluation" if role == "test" else "simulation")
+
+
+@app.post("/api/product-catalog/{key}/samples")
+async def product_catalog_samples(key: str, file: UploadFile = File(...), role: str = Form(...),
+                                  label: str = Form(...), group_id: str = Form("")):
+    content = await file.read(10 * 1024 * 1024 + 1)
+    return await run_in_threadpool(workflow_call, get_product_catalog().add_image,
+                                  key, content, file.filename, role, label, group_id)
+
+
+@app.post("/api/product-catalog/{key}/builds")
+def product_catalog_build(key: str, request: dict):
+    return workflow_call(get_product_catalog().start, key, request.get("mode", "normal_memory"))
+
+
+@app.post("/api/product-catalog/{key}/builds/{build}/activate")
+def product_catalog_activate(key: str, build: str):
+    with _inference_lock:
+        result = workflow_call(get_product_catalog().activate, key, build)
+        reset_product_cache()
+        return result
+
+
+@app.get("/api/batches")
+def batch_list():
+    return {"ok": True, "batches": [{k: v for k, v in b.items() if k != "items"} for b in get_batch_service().list()]}
+
+
+@app.post("/api/batches")
+def batch_create(request: dict):
+    return workflow_call(get_batch_service().create, request.get("product", ""), request.get("purpose", "production"), request.get("name", ""))
+
+
+@app.get("/api/batches/{key}")
+def batch_detail(key: str):
+    return workflow_call(get_batch_service().detail, key)
+
+
+@app.post("/api/batches/{key}/items")
+async def batch_add(key: str, file: UploadFile = File(...)):
+    content = await file.read(10 * 1024 * 1024 + 1)
+    return await run_in_threadpool(workflow_call, get_batch_service().add, key, content, file.filename)
+
+
+@app.get("/api/batches/{key}/items/{item}/image")
+def batch_image(key: str, item: str):
+    import re
+    if not re.fullmatch(r"[a-f0-9]{64}", item): raise HTTPException(400, "图片标识无效")
+    folder = workflow_call(get_batch_service().path, key)
+    path = os.path.join(folder, "images", item + ".png")
+    if not os.path.isfile(path): raise HTTPException(404, "未找到批次图片")
+    return FileResponse(path, media_type="image/png")
+
+
+@app.post("/api/batches/{key}/start")
+def batch_start(key: str, request: dict = None):
+    return workflow_call(get_batch_service().start, key, bool((request or {}).get("retry_failed")))
+
+
+@app.post("/api/batches/{key}/pause")
+def batch_pause(key: str):
+    return workflow_call(get_batch_service().pause, key)
+
+
+@app.post("/api/batches/{key}/cancel")
+def batch_cancel(key: str):
+    return workflow_call(get_batch_service().cancel, key)
+
+
 @app.get("/api/inspection/policy")
 async def inspection_policy():
     return get_review_workflow().policy().public_settings()
@@ -221,6 +436,7 @@ async def inspection_policy():
 
 @app.post("/api/inspection/policy")
 async def configure_inspection_policy(request: dict):
+    if get_batch_service().active(): raise HTTPException(409, "请等待后台批次结束后调整作业策略")
     return workflow_call(get_review_workflow().policy().configure, request)
 
 
@@ -235,6 +451,22 @@ def inspection_evidence():
             result.append({"product": config["key"], "allow_normal": False, "allow_isolate": False,
                            "reason": "当前版本缺少配套的自动处置评估"})
     return {"ok": True, "profiles": result}
+
+
+@app.get("/api/inspection/gray-evidence")
+def gray_inspection_evidence():
+    from review.metrics import gray_decision_summary
+    return {"ok": True, **gray_decision_summary(rec for _, rec in get_review_workflow().records())}
+
+
+@app.get("/api/inspection/audit")
+def inspection_audit():
+    from review.metrics import audit_window_summary
+    workflow = get_review_workflow()
+    period = workflow.policy().settings().get("audit_period", "day")
+    key = workflow.policy().period_key(period)
+    return {"ok": True, "audit_period": period, "sample_rate": workflow.policy().settings()["sample_rate"],
+            **audit_window_summary((rec for _, rec in workflow.records()), key)}
 
 
 @app.post("/api/detect")
@@ -268,7 +500,8 @@ def _finalize_detection(img, filename, config, inference, started, payload):
     if inference.get("heatmap") is not None:
         heatmap_path = os.path.join(directory, session + "_heatmap.png")
         inference["heatmap"].save(heatmap_path)
-    record = {"session_id": session, "score": payload.get("score"),
+    record = {"session_id": session, "timestamp": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
+              "score": payload.get("score"),
               "gate": {"route": payload["route"], "label": payload.get("route_label"),
                        "threshold": payload.get("threshold"), "t_high": payload.get("t_high")},
               "cognition": payload.get("cognition") or {}, "references": payload.get("references") or [],
@@ -281,7 +514,17 @@ def _finalize_detection(img, filename, config, inference, started, payload):
               "product_name": (config or {}).get("name", "通用视觉直检 / 未建库产品"),
               "image_hash": image_hash(input_path), "quality_check": image_quality(img),
               "vlm_called": bool(payload.get("vlm_called"))}
+    from review.batches import BATCH_CONTEXT
+    record.update(BATCH_CONTEXT.get())
+    from review.inspection_context import INSPECTION_CONTEXT
+    family_context=dict(INSPECTION_CONTEXT.get());started=family_context.pop('_started',started)
+    record.update(family_context)
     record["disposition"] = get_review_workflow().policy().decide(record, config, inference.get("image_features"))
+    if record.get("record_scope") == "simulation":
+        record["disposition"].update(status="needs_review", requires_review=True, label="公开标签核验演示 · 待核验",
+                                     reason="请对照来源标签完成核验；该记录不计入日常作业质量", reason_code="simulation_review")
+        if record.get('family_key'):
+            record['disposition'].update(label='产品族流程演示 · 待核验',reason='固定样例用于核对自动匹配和完整流程，不提供人工质量真值，也不计入日常质效')
     record["time_total"] = round(time.perf_counter() - started, 3)
     report.save_history(record, sample_name=filename or "工件")
     # Legacy tmp metadata remains available for old report consumers.
@@ -384,17 +627,25 @@ def _detect_image(content, filename, product):
             from cognition.knowledge_sources import STANDARD_CATALOG
             if product in STANDARD_CATALOG: retrieved.append(dict(STANDARD_CATALOG[product]))
             texts = [f"[{r['id']}] {r['standard']} {r['section']}: {r['text']}" for r in retrieved]
-            hint = f"异常分数{score:.4f}（介于{prod_threshold}与{t_high}之间），疑似{defect_word}缺陷"
+            visual_review = os.environ.get("VLM_FOCUS_REVIEW", "0") == "1"
+            hint = (f"当前产品：{pcfg['name']}。请独立观察整图及局部；本地模型将本图分入待分析区。"
+                    if visual_review else f"异常分数{score:.4f}（介于{prod_threshold}与{t_high}之间），疑似{defect_word}缺陷")
             prompt = vlm_api.build_prompt(hint, texts)
             tmp_path = os.path.join(RESULTS_DIR, "perception", "_api_tmp.png")
             img.save(tmp_path)
             vlm_called = True
-            cognition = validate_references(vlm_api.analyze(tmp_path, prompt), retrieved)
+            if visual_review:
+                from cognition.visual_input import focus_views
+                focus, focus_metadata = focus_views(img, result.get("anomaly_map"), engine.preprocess)
+                cognition = validate_references(vlm_api.analyze(
+                    tmp_path, prompt, focus_images=focus, visual_review=True), retrieved)
+                cognition["visual_input"] = focus_metadata
+            else:
+                cognition = validate_references(vlm_api.analyze(tmp_path, prompt), retrieved)
             if cognition.get("conclusion") in ("合格", "正常"):
-                # A reassuring VLM response cannot silently erase local anomaly evidence.
+                # Keep the VLM's original opinion; the separate disposition rule may abstain.
                 cognition["vlm_conclusion"] = cognition["conclusion"]
-                cognition["conclusion"] = "需人工复核"
-                cognition["suggestion"] = "本地感知存在异常证据；VLM未确认缺陷，请人工核对原图后签发"
+                cognition["suggestion"] = "本地分数仍处灰区；须通过作业规则才能自动归档，否则转人工核验"
         elif g["route"] == "high_risk":
             # 高风险：本地直出"明显异常，建议人工复核"，不调 VLM
             top_defect = "未知"
@@ -476,7 +727,7 @@ async def history_detail(day: str = "", key: str = ""):
 async def stats():
     """返回统计数据"""
     from interface import report
-    records = report.list_history(limit=500)
+    records = [r for _, r in get_review_workflow().records() if r.get("record_scope", "production") == "production"][:500]
     from review.metrics import operational_summary
     from review.workflow import original_prediction
     operations = operational_summary(records)
@@ -592,7 +843,7 @@ def chat(req_data: dict):
 【常见缺陷类型分布】
 {defect_lines}
 
-【判据说明】快链路：分数对照产品阈值；慢链路：灰区由视觉大模型提供证据。配套评估通过且远离边界的样本可自动归档或隔离疑似缺陷；抽查、临界、灰区与处理异常送人工核验。自动结果不是训练标签，不执行物理放行、返工或报废。"""
+【判据说明】快链路：分数对照产品阈值；慢链路：灰区调用视觉大模型与知识检索。配套评估通过且远离边界的低、高风险样本可自动归档或隔离疑似缺陷；灰区仅在结构化结论、分数位置和引用编号同时满足规则时自动分类。抽查、临界、仍不确定的灰区与处理异常送人工核验。自动结果不是训练标签，不执行物理放行、返工或报废。"""
 
     # 组装多轮 messages
     msgs = [{"role": "system", "content": sys_p}]
@@ -704,7 +955,7 @@ async def history_report(day: str, key: str):
 
 @app.get("/api/review/queue")
 async def review_queue(product: str = "", status: str = "all", offset: int = 0, limit: int = 50):
-    if status not in ("all", "pending", "reviewed", "errors", "flagged", "sampled", "automatic", "legacy") or offset < 0 or not 1 <= limit <= 100:
+    if status not in ("all", "pending", "reviewed", "errors", "flagged", "sampled", "gray", "automatic", "legacy") or offset < 0 or not 1 <= limit <= 100:
         raise HTTPException(400, "复核筛选或分页参数无效")
     return get_review_workflow().queue(product, status, offset, limit)
 
@@ -734,16 +985,20 @@ async def iteration_start(request: dict):
 
 @app.post("/api/iterations/{run_id}/activate")
 async def iteration_activate(run_id: str):
-    result = workflow_call(get_review_workflow().activate, run_id)
-    reset_product_cache()
-    return result
+    with _inference_lock:
+        if get_batch_service().active(): raise HTTPException(409, "请等待后台批次结束后发布模型")
+        result = workflow_call(get_review_workflow().activate, run_id)
+        reset_product_cache()
+        return result
 
 
 @app.post("/api/iterations/{run_id}/rollback")
 async def iteration_rollback(run_id: str):
-    result = workflow_call(get_review_workflow().rollback, run_id)
-    reset_product_cache()
-    return result
+    with _inference_lock:
+        if get_batch_service().active(): raise HTTPException(409, "请等待后台批次结束后回滚模型")
+        result = workflow_call(get_review_workflow().rollback, run_id)
+        reset_product_cache()
+        return result
 
 @app.post("/api/feedback")
 async def feedback(req_data: dict):

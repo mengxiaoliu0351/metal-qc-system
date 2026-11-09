@@ -82,5 +82,22 @@
     "perception_name": "CLIP 异常分数与监督二分类融合",
     "t_high": 0.6987949939404043,
     "score_kind": "binary_model_score"
+  },
+  {
+    "key": "product_a269405b7b9a",
+    "name": "M2 金属螺丝 · 头部俯视",
+    "sku": "M2（公开数据规格）",
+    "view": "头部俯视",
+    "source": "https://data.mendeley.com/datasets/2y6mcsyrpy/2",
+    "bank": "product_a269405b7b9a_13ff4b2995df4239a4d16d133c48ef6b.npy",
+    "threshold": 0.38529991904435507,
+    "t_high": 0.6795244568317658,
+    "perception_artifact": "head_expanded_20261108.json",
+    "perception_name": "CLIP 有标签整图判别 · 扩充训练",
+    "review_version": "head_expanded_20261108",
+    "review_benchmark": "experiments/m2_head_expanded_v1/review_benchmark",
+    "catalog_manifest": "experiments/m2_head_expanded_v1/review_benchmark/input.json",
+    "catalog_key": "product_a269405b7b9a",
+    "bank_sha256": "035b3cb279ba0ae39d0f99cbb5133823754ef06933edf1111b093bbdcee533dc"
   }
 ]

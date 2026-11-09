@@ -21,6 +21,7 @@ opencv-python
 matplotlib
 pandas
 scikit-learn
+reportlab
 
 # 旧版 Streamlit 界面（已弃用，仅供参考，可不装）
 # streamlit

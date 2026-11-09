@@ -217,19 +217,25 @@ def generate_pdf(result: dict, output_path: str, sample_name: str = "未知零�
     route = gate.get("route")
     route_name = {"low_risk": "低风险 / 本地提示", "vlm_review": "灰区 / VLM辅助复核",
                   "high_risk": "高风险 / 本地提示", "fast": "旧版本地链路",
-                  "slow": "旧版深度链路", "general": "通用视觉直检", "input_review": "输入待核验", "processing_error": "处理异常"}.get(route, "未记录")
+                  "slow": "旧版深度链路", "general": "通用视觉直检", "input_review": "输入待核验", "processing_error": "处理异常",
+                  "family_review": "产品族适用性／质量待核验"}.get(route, "未记录")
     prediction = original_prediction(result)
-    system_label = {"normal": "正常", "defect": "缺陷"}.get(prediction, "未记录")
+    local_label = {"normal": "正常", "defect": "缺陷"}.get(result.get("perception_prediction") or prediction, "未记录")
+    if route=='family_review':local_label='未进行质量判定'
     story = [Paragraph("金属表面缺陷检验报告", title),
              para(disposition["label"], small),
              Spacer(1, .35*cm)]
     story.append(styled_table([
         ["样品", sample_name, "产品", result.get("product_name", "未记录")],
         ["原检测时间", result.get("timestamp", "未记录"), "模型版本", result.get("perception_version", "未记录 / 历史版本")],
-        ["异常评分", number(result.get("score")), "系统原始判定", system_label],
+        ["模型评分", number(result.get("score")), "本地整图判定", local_label],
         ["下 / 上阈值", number(gate.get("threshold")) + " / " + number(gate.get("t_high")), "风险分流", route_name],
         ["AI辅助建议", cog.get("conclusion", "未记录"), "是否调用VLM", "是" if result.get('vlm_called', route in ("vlm_review", "slow", "general")) else "否"]
     ], [2.5*cm, 5.9*cm, 2.5*cm, 6.5*cm]))
+    if result.get('family_routing'):
+        routing=result['family_routing']
+        story.append(styled_table([["产品族入口",result.get('family_name',result.get('family_key','未记录')),"自动匹配视图",routing.get('view_name','未匹配')],
+            ["匹配参考版本",routing.get('router_version','未执行'),"适用性说明",routing.get('reason','未记录')]], [2.5*cm,5.9*cm,2.5*cm,6.5*cm]))
     story.append(Paragraph("一、作业处置与人工核验", heading))
     story.append(para("处理状态：" + disposition["label"] + "。" + str(disposition.get("reason", ""))))
     if result.get("disposition"):
@@ -273,7 +279,16 @@ def generate_pdf(result: dict, output_path: str, sample_name: str = "未知零�
         story.append(para("热力图仅表示相对异常响应，不代表缺陷尺寸、深度或标准限值。", small))
     story.append(Paragraph("三、系统辅助分析与处置建议", heading))
     story.append(para("异常描述：" + str(cog.get("defect_desc") or "未记录")))
-    story.append(para("处置建议：" + str(cog.get("suggestion") or "请结合原图人工复核")))
+    if result.get("batch_id"):
+        story.append(para("批次编号：" + result["batch_id"]))
+        story.append(para("记录用途：" + {"production": "检验作业", "evaluation": "封存评估", "simulation": "公开标签核验演示"}.get(result.get("record_scope"), "检验作业")))
+    if cog.get("review_version") == "focus-v2":
+        story.append(para("判断范围：当前图像中的可见外观。标准符合性需另行核验。"))
+        story.append(para("原图疑点位置：" + str(cog.get("defect_location") or "待核验")))
+    suggestion = cog.get("suggestion") or "请结合原图人工复核"
+    if disposition["requires_review"] and route not in ("vlm_review", "slow", "general"):
+        suggestion = "当前需人工核验。" + str(disposition.get("reason", "")) + "；风险评分或缺陷线索不代表已执行归档、隔离或报废。"
+    story.append(para("辅助建议：" + str(suggestion)))
     if route in ("vlm_review", "slow", "general"):
         story.append(para("VLM输出：" + str(cog.get("vlm_conclusion") or cog.get("conclusion") or "未记录")))
     ids = cog.get("ref_ids") or []

@@ -19,6 +19,17 @@ https://8.210.4.196 {
     header Referrer-Policy same-origin
 }
 
+metalqc.online, www.metalqc.online {
+    request_body {
+        max_size 12MB
+    }
+    reverse_proxy app:8000 {
+        header_up -X-Inspection-Admin
+    }
+    header X-Content-Type-Options nosniff
+    header Referrer-Policy same-origin
+}
+
 metalqc.8-210-4-196.sslip.io {
     request_body {
         max_size 12MB

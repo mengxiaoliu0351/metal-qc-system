@@ -77,3 +77,31 @@ app_assets/
 .chart-data-*/
 ~$*
 
+# Local authoring, delivery drafts and backups
+/ppt_work/
+/tmp/
+/交付材料/
+node_modules/
+.pytest_cache/
+*.pptx
+*.docx
+*.pdf
+*.zip
+*.tar
+*.tar.gz
+*.npy
+*.npz
+*.pkl
+*.joblib
+*.safetensors
+*.pem
+id_ed25519*
+id_rsa*
+*.log
+/docs/云服务器按需开停机_*.md
+
+# Small, attributed web demonstration assets (not the full datasets)
+!src/web/static/landing/nut-original.png
+!src/web/static/landing/nut-response.png
+!src/web/static/samples/*.png
+

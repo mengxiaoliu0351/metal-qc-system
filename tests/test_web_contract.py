@@ -26,10 +26,11 @@ class WebContractTests(unittest.TestCase):
         page = self.client.get("/")
         self.assertEqual(page.status_code, 200)
         self.assertNotIn("cdn.", page.text)
-        for asset in ("app.js", "style.css"):
+        for asset in ("app.js", "style.css", "product-ui.js", "batch-ui.js", "family-ui.js"):
             self.assertEqual(self.client.get("/static/" + asset).status_code, 200)
         products = self.client.get("/api/products").json()["products"]
-        self.assertEqual(len(products), 3)
+        self.assertTrue({"metal_nut", "screw", "grid"}.issubset({p["key"] for p in products}))
+        self.assertEqual(len({p["key"] for p in products}), len(products))
         for product in products:
             self.assertGreater(product["t_high"], product["threshold"])
         self.assertTrue(all(p["method"] for p in products))
@@ -110,7 +111,8 @@ class WebContractTests(unittest.TestCase):
                         self.assertEqual(result["perception_method"], "CLIP patch 原始基线")
                         if route == "vlm_review":
                             self.assertEqual(result["cognition"]["vlm_conclusion"], "合格")
-                            self.assertEqual(result["cognition"]["conclusion"], "需人工复核")
+                            self.assertEqual(result["cognition"]["conclusion"], "合格")
+                            self.assertTrue(result["disposition"]["requires_review"])
                         from cognition.knowledge_sources import STANDARD_CATALOG
                         self.assertEqual(result["references"], refs + [STANDARD_CATALOG['metal_nut']] if route == "vlm_review" else [])
                         self.assertEqual(save_history.call_args.args[0]["gate"]["t_high"], .3)

@@ -1,0 +1,12 @@
+{
+  "name": "metalqc-ui-checks",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Isolated checks for the MetalQC web interface",
+  "scripts": {
+    "test": "npm run test:ui",
+    "test:ui": "node tests/check_appearance_ui.js && node tests/check_body_quality_ui.js && node tests/check_family_catalog.js && node tests/check_family_inspection_ui.js && node tests/check_family_ui.js && node tests/check_inspection_selection.js && node tests/check_screw_showcase.js && node tests/check_workspace_journeys.cjs",
+    "test:ui:live": "node tests/check_management_live_dom.cjs"
+  },
+  "devDependencies": { "jsdom": "26.1.0" }
+}

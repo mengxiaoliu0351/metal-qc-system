@@ -94,7 +94,7 @@ class DemoLoginMiddleware(BaseHTTPMiddleware):
             return RedirectResponse("/login", status_code=303)
         request.scope["headers"] = [(k, v) for k, v in request.scope["headers"] if k.lower() != b"x-inspection-admin"] + [(b"x-inspection-admin", self.admin_token.encode())]
         request.scope["demo_authenticated"] = self.password_required
-        work = request.method == "POST" and path in ("/api/detect", "/api/chat")
+        work = request.method == "POST" and path in ("/api/detect", "/api/chat", "/api/product-family/detect")
         if work and self.busy >= 3:
             return JSONResponse({"detail": "当前检测任务较多，请稍后再试"}, status_code=429)
         if work:

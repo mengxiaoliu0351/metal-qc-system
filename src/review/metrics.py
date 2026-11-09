@@ -6,6 +6,7 @@ from review.workflow import original_prediction
 
 
 def operational_summary(records):
+    records = [r for r in records if r.get("record_scope", "production") == "production"]
     classified = [r for r in records if r.get("disposition")]
     automatic = sum(bool(r["disposition"].get("auto_result")) for r in classified)
     pending = sum(effective_disposition(r)["requires_review"] for r in records)
@@ -39,3 +40,69 @@ def operational_summary(records):
             "reviewed_recall": tp / (tp + fn) if tp + fn else None,
             "review_median_seconds": median(review_seconds) if review_seconds else None,
             "scope_note": "质效指标统计最近500条中的新策略记录；自动结果含抽查样本。人工一致性来自选择性复核，不能替代独立测试准确率。"}
+
+
+def gray_decision_summary(records):
+    """Report gray-zone auto decisions and confirmed errors without treating reviews as a blind test."""
+    fields = ("total", "auto_normal", "auto_defect", "uncertain", "reviewed_auto_normal",
+              "reviewed_auto_defect", "normal_misses", "defect_false_positives", "reviewed_uncertain")
+    summary = {field: 0 for field in fields}
+    summary.update(products={}, scope_note="仅统计灰区新规则记录并按产品、图像内容、模型版本去重。已复核样本受抽查与例外选择影响；误判数不能当作独立测试准确率。自动结果只作软件归档或隔离。")
+    seen = set()
+    for rec in records:
+        if rec.get("record_scope", "production") != "production": continue
+        disposition = rec.get("disposition") or {}
+        assessment = disposition.get("gray_assessment") or {}
+        if (rec.get("gate") or {}).get("route") != "vlm_review" or assessment.get("version") != "gray-decision-v1":
+            continue
+        product = rec.get("product_key") or "unknown"
+        identity = rec.get("image_hash") or rec.get("session_id")
+        key = (product, identity, disposition.get("model_key"))
+        if identity and key in seen:
+            continue
+        if identity:
+            seen.add(key)
+        annotation = rec.get("human_verdict") or {}
+        reviewed = (annotation.get("confirmed") is True and annotation.get("verdict") in ("ok", "defect")
+                    and not rec.get("review_reopened") and not rec.get("needs_review"))
+        proposal = disposition.get("auto_result") if disposition.get("auto_result") in ("normal", "defect") else "abstain"
+        bucket = summary["products"].setdefault(product, {field: 0 for field in fields})
+        for target in (summary, bucket):
+            target["total"] += 1
+            target[{"normal": "auto_normal", "defect": "auto_defect"}.get(proposal, "uncertain")] += 1
+            if reviewed and proposal == "normal":
+                target["reviewed_auto_normal"] += 1
+                target["normal_misses"] += int(annotation["verdict"] == "defect")
+            elif reviewed and proposal == "defect":
+                target["reviewed_auto_defect"] += 1
+                target["defect_false_positives"] += int(annotation["verdict"] == "ok")
+            elif reviewed:
+                target["reviewed_uncertain"] += 1
+    return summary
+
+
+def audit_window_summary(records, period_key):
+    """Count automatic outcomes and their review tickets for the active audit period."""
+    result = {"period_key": period_key, "automatic": 0, "selected": 0,
+              "selected_pending": 0, "selected_reviewed": 0, "confirmed_errors": 0,
+              "by_route": {"low_risk": 0, "vlm_review": 0, "high_risk": 0}}
+    for rec in records:
+        if rec.get("record_scope", "production") != "production": continue
+        action = rec.get("disposition") or {}
+        if action.get("audit_period_key") != period_key or action.get("auto_result") not in ("normal", "defect"):
+            continue
+        result["automatic"] += 1
+        route = (rec.get("gate") or {}).get("route")
+        if route in result["by_route"]:
+            result["by_route"][route] += 1
+        if action.get("sampled"):
+            result["selected"] += 1
+            human = rec.get("human_verdict") or {}
+            reviewed = (human.get("confirmed") is True and human.get("verdict") in ("ok", "defect")
+                        and not rec.get("review_reopened") and not rec.get("needs_review"))
+            result["selected_reviewed" if reviewed else "selected_pending"] += 1
+            if reviewed:
+                truth = "normal" if human["verdict"] == "ok" else "defect"
+                result["confirmed_errors"] += int(truth != action["auto_result"])
+    result["observed_rate"] = result["selected"] / result["automatic"] if result["automatic"] else None
+    return result

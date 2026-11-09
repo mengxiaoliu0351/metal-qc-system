@@ -106,6 +106,8 @@ class OptimizedPerception:
 
     def apply(self, detector, image, result):
         mode = self.metadata["mode"]
+        if mode == "normal_memory":
+            return {**result, "method": self.metadata["name"]}
         baseline = float(result["score"])
         global_prob = float(binary_probability(result["image_features"], self.params, "global")[0])
         crop_score = patchcore_score = 0.0

@@ -49,7 +49,22 @@ def image_hash(path):
         return hashlib.sha256(str(rgb.size).encode() + rgb.tobytes()).hexdigest()
 
 
+def benchmark_labels(data, paths, catalog=False):
+    """Imported products use audited labels, not the legacy MVTec `good` folder."""
+    if catalog:
+        labels = np.asarray(data.get('labels', []))
+        if labels.shape != (len(paths),) or not np.isin(labels, [0, 1]).all():
+            raise ValueError('导入产品缺少有效的来源质量标签')
+        return labels.astype(int)
+    return np.array([int(Path(p).parent.name != 'good') for p in paths])
+
+
 def original_prediction(record):
+    automatic = (record.get("disposition") or {}).get("auto_result")
+    if automatic in ("normal", "defect"):
+        return automatic
+    if record.get("disposition") and (record.get("gate") or {}).get("route") == "vlm_review":
+        return None
     prediction = record.get("perception_prediction")
     if prediction in ("normal", "defect"):
         return prediction
@@ -152,8 +167,9 @@ class ReviewWorkflow:
         from review.disposition import effective_disposition
         items = []
         summary = {"total": 0, "reviewed": 0, "correct": 0, "false_positive": 0, "false_negative": 0, "iteration_approved": 0}
-        summary.update(pending=0, sampled=0, auto_normal=0, auto_isolated=0, legacy=0)
+        summary.update(pending=0, sampled=0, gray_pending=0, auto_normal=0, auto_isolated=0, legacy=0)
         for path, rec in self.records():
+            if rec.get("record_scope") == "evaluation": continue
             if product and rec.get("product_key") != product:
                 continue
             prediction = original_prediction(rec)
@@ -164,6 +180,8 @@ class ReviewWorkflow:
             agreement = prediction == truth if confirmed and prediction else None
             summary["total"] += 1
             if disposition["requires_review"]: summary["pending"] += 1
+            if disposition["requires_review"] and (rec.get("gate") or {}).get("route") == "vlm_review":
+                summary["gray_pending"] += 1
             if disposition.get("sampled") and not confirmed: summary["sampled"] += 1
             if disposition["status"] == "auto_normal": summary["auto_normal"] += 1
             if disposition["status"] == "auto_isolated": summary["auto_isolated"] += 1
@@ -179,6 +197,7 @@ class ReviewWorkflow:
             if status == "flagged" and (confirmed or not rec.get("needs_review")):
                 continue
             if status == "sampled" and (not disposition.get("sampled") or confirmed): continue
+            if status == "gray" and ((rec.get("gate") or {}).get("route") != "vlm_review" or not disposition["requires_review"]): continue
             if status == "automatic" and disposition["status"] not in ("auto_normal", "auto_isolated"): continue
             if status == "legacy" and disposition["status"] != "legacy": continue
             items.append({k: rec.get(k) for k in ("session_id", "timestamp", "sample_name", "product_key", "product_name", "score", "gate", "cognition", "human_verdict", "needs_review")})
@@ -195,16 +214,28 @@ class ReviewWorkflow:
             path, rec = self.locate(request.get("session_id", ""), request.get("day", ""), request.get("key", ""))
             prediction = original_prediction(rec)
             approved = request.get("use_for_iteration") is True
+            if approved and rec.get('iteration_eligible') is False:
+                raise ValueError('该记录尚未绑定通过验证的质量模型；可保存最终核验，但不能回流已有产品模型')
+            if approved and rec.get("record_scope") == "evaluation":
+                raise ValueError("封存评估记录仅用于评价，不能批准回流训练或校准")
+            source_label = (rec.get("source_annotation") or {}).get("label")
+            if (approved and rec.get("record_scope") == "simulation" and source_label in ("normal", "defect")
+                    and source_label != ("normal" if verdict == "ok" else "defect")):
+                raise ValueError("核验演示标签与来源不一致，请先记录争议，暂不批准用于迭代")
             image = rec.get("input_png")
             if approved and (not image or not Path(image).is_file() or not rec.get("product_key")):
                 raise ValueError("缺少持久化原图或产品，不能加入迭代样本")
             fingerprint = image_hash(image) if image and Path(image).is_file() else None
+            if approved and fingerprint in self.reserved_images(rec.get('product_key')):
+                raise ValueError('该图片已保留用于独立留出评估，可保存核验标签，但不能批准回流训练或校准')
             annotation = {"verdict": verdict, "defect_type": str(request.get("defect_type", ""))[:100] if verdict == "defect" else "",
                           "reviewer": str(request.get("reviewer", "未署名操作员")).strip()[:80] or "未署名操作员",
                           "note": str(request.get("note", ""))[:2000], "confirmed": True, "ts": now(),
                           "revision": uuid.uuid4().hex, "use_for_iteration": approved,
                           "system_prediction": prediction,
                           "agreement": prediction == ("normal" if verdict == "ok" else "defect") if prediction else None}
+            annotation["verification_method"] = "dataset_label_replay" if rec.get("record_scope") == "simulation" else "operator_review"
+            annotation["label_source"] = (rec.get("source_annotation") or {}).get("source", "operator_provided")
             seconds = request.get("review_seconds")
             if seconds is not None:
                 import math
@@ -231,10 +262,12 @@ class ReviewWorkflow:
 
     def approved(self, product):
         values = []
+        reserved = self.reserved_images(product)
         for p in sorted(self.candidates.glob("*.json")):
             try:
                 item = read(p)
                 if item.get("product_key") == product and item.get("status") == "approved" and item.get("label", {}).get("confirmed"):
+                    if item.get('image_hash') in reserved: continue
                     record_path = self.history / item['record_day'] / (item['record_key'] + '.json')
                     record = read(record_path)
                     if record.get('needs_review') or record.get('review_reopened'):
@@ -246,6 +279,10 @@ class ReviewWorkflow:
                 continue
         return values
 
+    def reserved_images(self, product):
+        from review.data_identity import reserved_hashes
+        return reserved_hashes(self.results)
+
     def review_digest(self, product):
         return digest(self.approved(product))
 
@@ -254,6 +291,9 @@ class ReviewWorkflow:
         result = next((p for p in values if p["key"] == product), None)
         if result is None: raise ValueError("未知产品")
         return result
+
+    def benchmark_folder(self, config):
+        return self.results / config["review_benchmark"] if config.get("review_benchmark") else self.benchmark
 
     def run_path(self, run_id):
         if not re.fullmatch(r"[0-9]{8}T[0-9]{6}_[a-f0-9]{10}", run_id):
@@ -314,8 +354,9 @@ class ReviewWorkflow:
             current_params = {k: z[k].copy() for k in z.files}
         if metadata["product"] != product or not np.isclose(metadata["threshold"], config["threshold"], atol=1e-10, rtol=0):
             raise ValueError("当前模型与阈值不配套，请先修复配置")
-        split_path = self.benchmark / (product + "_split.json")
-        cache_path = self.benchmark / (product + "_features.npz")
+        benchmark = self.benchmark_folder(config)
+        split_path = benchmark / (product + "_split.json")
+        cache_path = benchmark / (product + "_features.npz")
         split = read(split_path)
         with np.load(cache_path, allow_pickle=False) as z:
             data = {k: z[k].copy() for k in z.files}
@@ -335,7 +376,7 @@ class ReviewWorkflow:
             raise ValueError("冻结训练、校准、测试分区相互重叠")
         legacy = {p.relative_to(self.root).as_posix() for p in sorted((self.root / "data/mvtec" / product / "train/good").glob("*.png"))[:80]}
         validation += [indices[p] for p in split["normal_calibration"] if p not in legacy]
-        labels = np.array([int(Path(p).parent.name != "good") for p in paths])
+        labels = benchmark_labels(data, paths, catalog=bool(config.get('catalog_manifest')))
         identities = {}
         for i, path in enumerate(paths):
             fingerprint = image_hash(self.root / path)
@@ -346,6 +387,12 @@ class ReviewWorkflow:
         normal_hashes = {image_hash(self.root / p): i for i, p in enumerate(split["normal_memory"])}
         if any(h in identities and identities[h][1] in ("calibration", "audit") for h in normal_hashes):
             raise ValueError("正常训练参考图与冻结校准/测试图内容重叠")
+        if config.get("catalog_manifest"):
+            for sample in read(self.results / config["catalog_manifest"])["samples"]:
+                if sample["role"] == "test":
+                    identities[sample["pixel_hash"]] = (-1, "sealed_test")
+        for fingerprint in self.reserved_images(product):
+            identities[fingerprint] = (-1, 'reserved_evaluation')
         xt = np.concatenate([data["global_features"][train], data["normal_global"]]).copy()
         yt = np.r_[labels[train], np.zeros(len(data["normal_global"]), dtype=int)]
         train_slots = {p: i for i, p in enumerate(train)}
@@ -420,6 +467,7 @@ class ReviewWorkflow:
             if not np.allclose(binary_probability(xt[:8], params, "global"), fitted.predict_proba(xt[:8])[:, 1], rtol=1e-10, atol=1e-12):
                 raise ValueError("导出模型与训练模型推理不一致")
         def predict(values, parameters, score_mode):
+            if score_mode == "normal_memory": return values["clip_scores"]
             probability = binary_probability(values["global_features"], parameters, "global")
             if score_mode == "global_binary": return probability
             if score_mode == "fast_fusion": return binary_probability(np.c_[values["clip_scores"], probability], parameters, "fusion")
@@ -493,8 +541,8 @@ class ReviewWorkflow:
             checks = [(directory / "candidate.npz", report["candidate_sha256"]),
                       (directory / "candidate.json", report["candidate_metadata_sha256"]),
                       (self.optimized / current_meta["arrays"], report["base_artifact_sha256"]),
-                      (self.benchmark / (product + "_features.npz"), report["benchmark_sha256"]),
-                      (self.benchmark / (product + "_split.json"), report["split_sha256"])]
+                      (self.benchmark_folder(report["base_config"]) / (product + "_features.npz"), report["benchmark_sha256"]),
+                      (self.benchmark_folder(report["base_config"]) / (product + "_split.json"), report["split_sha256"])]
             if any(file_hash(p) != expected for p, expected in checks): raise ValueError("评估后模型或数据发生变化，请重新评估")
             name = "review_" + product + "_" + run_id
             import shutil
